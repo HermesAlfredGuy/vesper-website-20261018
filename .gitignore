@@ -1,0 +1,17 @@
+# research captures and local build artefacts — never published
+refs/
+reviews/
+tools/*.png
+tools/*.jpg
+
+node_modules/
+tools/node_modules/
+tools/package-lock.json
+*.log
+.DS_Store
+
+# local verification output
+*.tmp.png
+
+# delivered archive
+*-src.zip

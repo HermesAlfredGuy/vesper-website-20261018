@@ -1,0 +1,13 @@
+{
+  "name": "vesper-website-20261018",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "VESPER — carry a different atmosphere. A concept portable light, presented as a realtime product page.",
+  "scripts": {
+    "serve": "python3 -m http.server 9311"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}

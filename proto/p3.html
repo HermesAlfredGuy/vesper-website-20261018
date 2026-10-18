@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VESPER — prototype 3 · drawing</title>
+<style>
+  @font-face{font-family:'IS';src:url('../assets/fonts/instrument-serif-400.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'IS';font-style:italic;src:url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'ISans';src:url('../assets/fonts/instrument-sans-400.woff2') format('woff2');font-weight:400 600;font-display:swap}
+  @font-face{font-family:'Plex';src:url('../assets/fonts/ibm-plex-mono-400.woff2') format('woff2');font-display:swap}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:#e8e1d4;color:#14110e;font-family:'ISans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  #stagewrap{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%}
+  .guides{position:fixed;inset:0;pointer-events:none;opacity:.5}
+  .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:22px 44px;font-size:10px;letter-spacing:.22em;text-transform:uppercase;z-index:5}
+  .nav b{font-weight:500;letter-spacing:.42em;font-size:11px}
+  .nav ul{display:flex;gap:26px;list-style:none;opacity:.66}
+  h1{position:fixed;left:44px;top:15vh;font-family:'IS',serif;font-weight:400;font-size:9.6vw;line-height:.86;letter-spacing:-.024em;z-index:4;width:64vw}
+  h1 em{font-style:italic}
+  .lede{position:fixed;left:44px;top:calc(15vh + 9.6vw * 2.6);width:26ch;font-size:14.5px;line-height:1.6;opacity:.72;z-index:4}
+  .spec{position:fixed;left:44px;bottom:40px;z-index:4;font-family:'Plex',monospace;font-size:9.5px;letter-spacing:.1em;display:flex;gap:0}
+  .spec div{padding:0 22px;border-left:1px solid rgba(20,17,14,.24)}
+  .spec div:first-child{padding-left:0;border:0}
+  .spec b{display:block;font-weight:400;opacity:.46;letter-spacing:.2em;margin-bottom:6px;text-transform:uppercase}
+  .fig{position:fixed;right:44px;bottom:40px;font-family:'Plex',monospace;font-size:9.5px;letter-spacing:.16em;opacity:.55;text-align:right;z-index:4}
+  .tag{position:fixed;right:44px;top:15vh;font-family:'Plex',monospace;font-size:9.5px;letter-spacing:.16em;opacity:.55;text-align:right;z-index:4;line-height:1.9}
+  .cta{position:fixed;right:44px;top:calc(15vh + 78px);display:inline-flex;gap:12px;align-items:center;background:#14110e;color:#efe7d9;padding:15px 22px;border-radius:2px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;z-index:5;border:0;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="stagewrap"><canvas id="stage"></canvas></div>
+<svg class="guides" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+  <line x1="0" y1="15" x2="100" y2="15" stroke="#14110e" stroke-width=".07" stroke-dasharray="1.2 .9"/>
+  <line x1="0" y1="85" x2="100" y2="85" stroke="#14110e" stroke-width=".07" stroke-dasharray="1.2 .9"/>
+  <line x1="38" y1="0" x2="38" y2="100" stroke="#14110e" stroke-width=".07" stroke-dasharray="1.2 .9"/>
+  <line x1="76" y1="0" x2="76" y2="100" stroke="#14110e" stroke-width=".07" stroke-dasharray="1.2 .9"/>
+</svg>
+<header class="nav"><b>Vesper</b><ul><li>Object</li><li>Atmosphere</li><li>Materials</li><li>Reserve</li></ul></header>
+<h1>Carry a<br><em>different</em><br>atmosphere.</h1>
+<p class="lede">One cast-aluminium column, one helical seam, four atmospheres. 348 mm tall, 1.9 kg, eighteen hours of it.</p>
+<div class="tag">FIG. 01 — VESPER / 01<br>SCALE 1 : 4 · ORTHOGRAPHIC</div>
+<button class="cta">Reserve a concept unit →</button>
+<div class="spec">
+  <div><b>Height</b>348 mm</div>
+  <div><b>Seam</b>4 mm · 0.86 turn</div>
+  <div><b>Body</b>Cast aluminium</div>
+  <div><b>Burn</b>18 h · USB-C</div>
+</div>
+<div class="fig">drag to rotate the object</div>
+<script type="module">
+import { createStage } from '../js/scene3d.js';
+const c = document.getElementById('stage');
+const s = createStage(c);
+s.setMood(0.05); s.setIntensity(0.5); s.setAtmosphere('lumen'); s.setPhase(-1.1);
+s.paceCamera([0.30, 0.28, 1.06], [0.02, 0.18, 0], 30); s.snapCamera();
+window.__stage = s;
+function fit(){ const r = document.getElementById('stagewrap').getBoundingClientRect(); s.resize(r.width, r.height); }
+fit(); addEventListener('resize', fit);
+let last = performance.now(), orbit = 0;
+function loop(t){ const dt = Math.min(0.05, (t - last) / 1000); last = t; s.update(dt); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+let down = false, sx = 0, base = 0;
+addEventListener('pointerdown', e => { down = true; sx = e.clientX; base = orbit; });
+addEventListener('pointermove', e => { if (!down) return; orbit = base + (e.clientX - sx) * 0.006; s.setOrbit(orbit); s.setPhase(-1.1 + orbit * 0.95); });
+addEventListener('pointerup', () => down = false);
+</script>
+</body>
+</html>

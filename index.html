@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VESPER — carry a different atmosphere</title>
+<meta name="description" content="VESPER 01 is a concept portable light: one cast-aluminium column with a single helical channel that throws atmosphere onto the room. A design study, not a product for sale.">
+<meta name="theme-color" content="#13100e">
+<link rel="preload" href="assets/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2313100e'/%3E%3Cpath d='M10 24 L22 8' stroke='%23ffb464' stroke-width='2.5'/%3E%3C/svg%3E">
+<script type="module" src="js/main.js"></script>
+</head>
+<body class="is-tone-dark" data-ready="0">
+
+<a class="skip" href="#object">Skip to the object</a>
+
+<!-- one WebGL stage behind the whole page; the object is continuous, the camera is the operator -->
+<div class="stage" id="stage">
+  <img class="stage__poster" id="stagePoster" src="assets/poster.webp" alt="Vesper 01: a tall dark cast-aluminium column with a single helical channel of light, standing against a plaster wall." width="1440" height="900" decoding="async" fetchpriority="high">
+  <canvas id="gl" width="1440" height="900"></canvas>
+  <div class="stage__scrim" aria-hidden="true"></div>
+</div>
+<div class="stage__fallback" id="fallback" hidden>
+  <p>Rendered in real time with WebGL, which is switched off or unavailable in this browser. You are looking at a still of the object; every finish, atmosphere and reading on this page is still live.</p>
+</div>
+
+<div class="progress" aria-hidden="true"><i id="progressBar"></i></div>
+
+<header class="nav" id="nav">
+  <a class="nav__mark" href="#top">Vesper</a>
+  <nav class="nav__links" aria-label="Sections">
+    <a href="#object">Object</a>
+    <a href="#atmosphere">Atmosphere</a>
+    <a href="#materials">Materials</a>
+    <a href="#specification">Specification</a>
+  </nav>
+  <button class="btn btn--ghost nav__cta" type="button" data-open-reserve>Configure</button>
+</header>
+
+<div class="chapters" aria-hidden="true">
+  <span class="chapters__n" id="chapterNum">01</span>
+  <span class="chapters__rule"></span>
+  <span class="chapters__t" id="chapterName">Portable light</span>
+</div>
+
+<main id="main">
+
+  <!-- 01 ────────────────────────────────────────────────────────── hero -->
+  <section class="sec sec--hero" id="top" data-chapter="01" data-chapter-name="Portable light"
+           data-cam="0.17,0.31,0.94|-0.20,0.105,0|33" data-mood="0.9" data-int="0.8" data-tone="dark">
+    <div class="sec__inner">
+      <div class="copy copy--wide">
+        <p class="kicker"><s></s>01 — portable light · 348 mm</p>
+        <h1 class="display">
+          <span class="ln"><span>Carry a</span></span>
+          <span class="ln"><em>different</em></span>
+          <span class="ln"><span>atmosphere.</span></span>
+        </h1>
+        <p class="lede">Vesper 01 is a hand-held column of cast aluminium with one helical channel
+          milled into it. Nothing glows on its surface. The light leaves through the gap and lands
+          on whatever room you put it in.</p>
+      </div>
+    </div>
+
+    <div class="turn">
+      <label class="turn__label" for="turnRange"><span>Turn the seam</span></label>
+      <input id="turnRange" class="turn__input" type="range" min="-100" max="100" value="0" step="1"
+             aria-describedby="turnHint">
+      <p class="turn__hint" id="turnHint"><span class="hint--mouse">Drag the object, or use ← → here.</span><span class="hint--touch">Slide to rotate the object.</span></p>
+    </div>
+
+    <div class="herofoot">
+      <p class="readout" aria-live="polite">
+        <span class="readout__dot" aria-hidden="true"></span>
+        <span id="readoutText">Hearth · 2 400 K · 96 lm · Slate</span>
+      </p>
+      <a class="scrollcue" href="#object" aria-label="Continue to the object">
+        <span>Scroll</span><i aria-hidden="true"></i>
+      </a>
+    </div>
+  </section>
+
+  <!-- 02 ───────────────────────────────────────────────────────── the seam -->
+  <section class="sec sec--seam" id="object" data-chapter="02" data-chapter-name="The seam"
+           data-cam="0.19,0.245,0.66|-0.16,0.155,0|30" data-mood="0.96" data-int="0.9" data-tone="dark">
+    <div class="sec__inner">
+      <div class="copy">
+        <p class="kicker"><s></s>02 — the seam</p>
+        <h2 class="h2">The light comes out of the gap.</h2>
+        <p>A single 9&nbsp;mm channel is machined 1.16&nbsp;turns around the body. An opal diffuser
+          sits deep behind it in the casting. From most angles the channel is just a dark line —
+          walk around the object and it opens.</p>
+        <p>Because the source is a line and not a point, the light it throws is a band. Height,
+          distance to the wall and the direction the channel faces decide how sharp that band is.</p>
+      </div>
+      <ul class="callouts">
+        <li class="callout"><b>i</b><span>Aperture 9&nbsp;mm<br>1.16 turns</span><i aria-hidden="true"></i></li>
+        <li class="callout"><b>ii</b><span>Body 348&nbsp;mm<br>bead-blasted cast aluminium</span><i aria-hidden="true"></i></li>
+        <li class="callout"><b>iii</b><span>Plinth 1.9&nbsp;kg<br>knurled dial, 18&nbsp;h</span><i aria-hidden="true"></i></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 03 ────────────────────────────────────────────────────── atmosphere -->
+  <section class="sec sec--atmo" id="atmosphere" data-chapter="03" data-chapter-name="Atmosphere"
+           data-cam="-0.30,0.30,1.16|-0.19,0.105,0|36" data-mood="1" data-int="1" data-tone="dark">
+    <div class="sec__inner">
+      <div class="copy">
+        <p class="kicker"><s></s>03 — atmosphere</p>
+        <h2 class="h2">Four atmospheres.<br>One object.</h2>
+        <p class="lede lede--sm">The dial on the plinth sweeps 1&nbsp;850&nbsp;K to 4&nbsp;600&nbsp;K with
+          no steps and no flicker. Vesper remembers the last setting when it is picked up.</p>
+      </div>
+      <ul class="atmos" id="atmoList">
+        <li>
+          <button class="atmos__row" type="button" data-atmo="ember" aria-pressed="false">
+            <span class="atmos__n">Ember</span>
+            <span class="atmos__k">1 850 K</span>
+            <span class="atmos__lm">34 lm</span>
+            <span class="atmos__b">A coal, not a lamp. Enough light to find a glass.</span>
+          </button>
+        </li>
+        <li>
+          <button class="atmos__row" type="button" data-atmo="hearth" aria-pressed="true">
+            <span class="atmos__n">Hearth</span>
+            <span class="atmos__k">2 400 K</span>
+            <span class="atmos__lm">96 lm</span>
+            <span class="atmos__b">The colour of the last hour of a room.</span>
+          </button>
+        </li>
+        <li>
+          <button class="atmos__row" type="button" data-atmo="lumen" aria-pressed="false">
+            <span class="atmos__n">Lumen</span>
+            <span class="atmos__k">3 000 K</span>
+            <span class="atmos__lm">190 lm</span>
+            <span class="atmos__b">Neutral warm. It flatters skin, paper and plaster.</span>
+          </button>
+        </li>
+        <li>
+          <button class="atmos__row" type="button" data-atmo="meridian" aria-pressed="false">
+            <span class="atmos__n">Meridian</span>
+            <span class="atmos__k">4 600 K</span>
+            <span class="atmos__lm">240 lm</span>
+            <span class="atmos__b">Cold, clean, slightly unreal. For working late.</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 04 ─────────────────────────────────────────────────────── materials -->
+  <section class="sec sec--materials" id="materials" data-chapter="04" data-chapter-name="Finishes"
+           data-cam="0.24,0.30,0.88|-0.18,0.125,0|30" data-mood="0.10" data-int="0.82" data-tone="light">
+    <div class="sec__inner">
+      <div class="copy">
+        <p class="kicker"><s></s>04 — finishes</p>
+        <h2 class="h2">Four finishes,<br>one casting.</h2>
+        <p>Every body comes out of the same mould and is finished by hand, so the shape never
+          changes — only the temperature of the metal around it.</p>
+      </div>
+      <ul class="finishes" id="finishList">
+        <li><button class="fin" type="button" data-finish="foundry" aria-pressed="false">
+          <span class="fin__chip" style="--chip:#b0aca3"></span>
+          <span class="fin__n">Foundry</span><span class="fin__s">raw cast aluminium</span>
+          <span class="fin__b">Bead-blasted and left unsealed. It keeps the fingerprints of the room.</span>
+        </button></li>
+        <li><button class="fin" type="button" data-finish="umber" aria-pressed="false">
+          <span class="fin__chip" style="--chip:#6b4527"></span>
+          <span class="fin__n">Umber</span><span class="fin__s">burnt bronze</span>
+          <span class="fin__b">Bronze PVD over aluminium, oxidised to the colour of a coal that has gone out.</span>
+        </button></li>
+        <li><button class="fin" type="button" data-finish="slate" aria-pressed="true">
+          <span class="fin__chip" style="--chip:#3a3d41"></span>
+          <span class="fin__n">Slate</span><span class="fin__s">anodised charcoal</span>
+          <span class="fin__b">Deep anodising, fine-blasted. Reads black until light rakes across it.</span>
+        </button></li>
+        <li><button class="fin" type="button" data-finish="bone" aria-pressed="false">
+          <span class="fin__chip" style="--chip:#ded5c4"></span>
+          <span class="fin__n">Bone</span><span class="fin__s">chalk ceramic</span>
+          <span class="fin__b">Sprayed ceramic, matte to the touch. The warmest thing in a white room.</span>
+        </button></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 05 ─────────────────────────────────────────────────── specification -->
+  <section class="sec sec--specs" id="specification" data-chapter="05" data-chapter-name="Specification"
+           data-cam="0.0,0.198,0.44|-0.045,0.168,0|30" data-mood="0.14" data-int="0.66" data-tone="light">
+    <div class="sec__inner">
+      <div class="copy">
+        <p class="kicker"><s></s>05 — specification</p>
+        <h2 class="h2">Measured, not described.</h2>
+        <p class="lede lede--sm">Drawn at 1:4 from the same profile the render uses, so the numbers
+          in this table and the object above are the same object.</p>
+      </div>
+
+      <figure class="drawing">
+        <img src="assets/vesper-drawing.svg" alt="Technical front elevation of Vesper 01 with dimensions: 348 mm tall, 196 mm wide at the plinth, a 9 mm helical channel making 1.16 turns, and a section detail of the channel." width="560" height="660" loading="lazy">
+        <figcaption>Fig. 01 — Vesper 01, front elevation and channel section, 1:4.</figcaption>
+      </figure>
+
+      <table class="spec">
+        <caption class="sr-only">Vesper 01 specification</caption>
+        <tbody>
+          <tr><th scope="row">Body</th><td>Cast aluminium, bead-blasted; four finishes</td></tr>
+          <tr><th scope="row">Height</th><td>348 mm (body 328 mm on a 20 mm plinth)</td></tr>
+          <tr><th scope="row">Plan</th><td>Oval, 196 × 158 mm at the plinth</td></tr>
+          <tr><th scope="row">Channel</th><td>9 mm aperture, 1.16 turns, machined</td></tr>
+          <tr><th scope="row">Diffuser</th><td>Opal PMMA, seated 5 mm behind the channel</td></tr>
+          <tr><th scope="row">Output</th><td>34–240 lm, 1 850–4 600 K, flicker-free</td></tr>
+          <tr><th scope="row">Battery</th><td>18 h at 96 lm; USB-C, 2 h to full</td></tr>
+          <tr><th scope="row">Control</th><td>Knurled plinth dial, infinite travel, memory</td></tr>
+          <tr><th scope="row">Weight</th><td>1.9 kg</td></tr>
+          <tr><th scope="row">Rating</th><td>IP44 — indoor and sheltered outdoor</td></tr>
+        </tbody>
+      </table>
+
+      <p class="macrocap"><span>Fig. 02</span> The channel aperture, seen at 1:1. It is a groove machined
+        into the body — the wall of the groove catches the light and throws it onto the room, which is why
+        the object never reads as a glowing tube.</p>
+
+      <p class="honesty"><b>What this is.</b> Vesper is an independent design concept, presented as a
+        real product page. Nothing here is for sale, no order is placed, no payment is taken and no
+        data leaves your browser.</p>
+    </div>
+  </section>
+
+  <!-- 06 ───────────────────────────────────────────────────────── reserve -->
+  <section class="sec sec--reserve" id="reserve" data-chapter="06" data-chapter-name="Reserve"
+           data-cam="0.34,0.16,0.82|-0.14,0.150,0|34" data-mood="0.94" data-int="0.95" data-tone="dark">
+    <div class="sec__inner">
+      <div class="copy copy--wide">
+        <p class="kicker"><s></s>06 — reserve</p>
+        <h2 class="h2 h2--big">Reserve a concept unit.</h2>
+        <p class="lede">Choose a finish and an atmosphere, then open the preview to see the exact
+          configuration written out. It is a local exercise: nothing is charged, submitted or kept.</p>
+        <dl class="card" id="reserveCard">
+          <div><dt>Finish</dt><dd id="cardFinish">Slate — anodised charcoal</dd></div>
+          <div><dt>Atmosphere</dt><dd id="cardAtmo">Hearth — 2 400 K · 96 lm</dd></div>
+          <div><dt>Output</dt><dd id="cardOut">72 % of 240 lm</dd></div>
+          <div><dt>Delivery</dt><dd>None. This is a design concept.</dd></div>
+        </dl>
+        <div class="actions">
+          <button class="btn btn--solid" type="button" data-open-reserve>Open the reservation preview</button>
+          <a class="btn btn--ghost" href="#specification">Read the specification</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot__grid">
+    <div>
+      <p class="foot__mark">Vesper</p>
+      <p class="foot__note">Vesper 01 — a concept light and an independent design study.<br>
+        Not affiliated with, and not claiming to be, any real product.</p>
+    </div>
+    <div>
+      <p class="foot__h">Provenance</p>
+      <p class="foot__note">Typefaces: Instrument Serif, Instrument Sans, IBM Plex Mono — SIL Open
+        Font Licence 1.1, self-hosted. Rendering: three.js r186, MIT. Geometry, textures, lighting and
+        the technical drawing are authored here; no third-party imagery or model files are used.</p>
+    </div>
+    <div>
+      <p class="foot__h">Contact</p>
+      <p class="foot__note">A design study. There is no shop, no newsletter and no mailing list.</p>
+      <p class="foot__note foot__note--dim">© <span id="year">2026</span> Vesper concept.</p>
+      <button class="foot__motion" type="button" id="footMotion" aria-pressed="false">Pause ambient motion</button>
+    </div>
+  </div>
+</footer>
+
+<!-- persistent configurator: the single source of truth for finish + atmosphere + output -->
+<div class="dock" id="dock" role="group" aria-label="Object configuration">
+  <div class="dock__group">
+    <span class="dock__label" id="dockFinishLabel">Finish</span>
+    <div class="swatches" id="dockFinish" role="radiogroup" aria-labelledby="dockFinishLabel"></div>
+  </div>
+  <div class="dock__group">
+    <span class="dock__label" id="dockAtmoLabel">Atmosphere</span>
+    <div class="swatches" id="dockAtmo" role="radiogroup" aria-labelledby="dockAtmoLabel"></div>
+  </div>
+  <div class="dock__group dock__group--dim">
+    <label class="dock__label" for="dimRange">Output</label>
+    <input id="dimRange" class="dock__range" type="range" min="0" max="100" value="72"
+           aria-describedby="dockReadout">
+  </div>
+  <div class="dock__group">
+    <button class="btn btn--ghost btn--sm dock__motion" type="button" id="motionToggle" aria-pressed="false" aria-label="Pause ambient motion">
+      <svg class="ico ico--pause" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><rect x="1" y="1" width="2.4" height="8"/><rect x="6.6" y="1" width="2.4" height="8"/></svg>
+      <svg class="ico ico--play" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1.5 1 L9 5 L1.5 9 Z"/></svg>
+    </button>
+  </div>
+  <div class="dock__group">
+    <button class="btn btn--solid btn--sm" type="button" data-open-reserve>Reserve</button>
+  </div>
+  <p class="dock__readout" id="dockReadout" aria-live="polite">Slate · Hearth · 72 %</p>
+</div>
+<dialog class="modal" id="reserveModal" aria-labelledby="modalTitle">
+  <form method="dialog" class="modal__inner">
+    <p class="modal__tag">Concept reservation preview — not an order</p>
+    <h2 class="modal__title" id="modalTitle">Vesper 01</h2>
+    <dl class="modal__cfg" id="modalCfg"></dl>
+    <p class="modal__honest">No payment, no account, no email. Nothing was submitted and nothing was
+      stored: this configuration exists only in this browser tab and disappears when you close it.
+      The reference below is generated locally for your own notes.</p>
+    <p class="modal__ref">Reference <b id="modalRef">—</b></p>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" type="button" id="copyCfg">Copy configuration</button>
+      <button class="btn btn--solid" type="submit" value="close" autofocus>Close</button>
+    </div>
+    <p class="modal__copy" id="copyNote" role="status"></p>
+  </form>
+</dialog>
+
+</body>
+</html>

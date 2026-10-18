@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VESPER — prototype 1 · night gallery</title>
+<style>
+  @font-face{font-family:'IS';src:url('../assets/fonts/instrument-serif-400.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'IS';font-style:italic;src:url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'ISans';src:url('../assets/fonts/instrument-sans-400.woff2') format('woff2');font-weight:400 600;font-display:swap}
+  @font-face{font-family:'Plex';src:url('../assets/fonts/ibm-plex-mono-400.woff2') format('woff2');font-display:swap}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#14110f;color:#efe7d9;font-family:'ISans',system-ui,sans-serif;overflow:hidden}
+  #stagewrap{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%}
+  .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:26px 34px;font-size:10px;letter-spacing:.22em;text-transform:uppercase}
+  .nav b{font-weight:500;letter-spacing:.34em}
+  .nav ul{display:flex;gap:26px;list-style:none;opacity:.62}
+  .h1{position:fixed;left:34px;bottom:15vh;font-family:'IS',serif;font-size:12.4vw;line-height:.84;letter-spacing:-.022em;font-weight:400;pointer-events:none;mix-blend-mode:screen}
+  .h1 em{font-style:italic}
+  .meta{position:fixed;left:34px;top:96px;font-family:'Plex',monospace;font-size:10px;letter-spacing:.12em;opacity:.55;line-height:1.9}
+  .hint{position:fixed;right:34px;bottom:34px;font-family:'Plex',monospace;font-size:10px;letter-spacing:.14em;opacity:.55;text-align:right;line-height:1.9}
+  .shot{position:fixed;left:50%;transform:translateX(-50%);bottom:34px;font-family:'Plex',monospace;font-size:10px;letter-spacing:.18em;opacity:.7;display:flex;gap:16px;align-items:center}
+  .shot i{width:5px;height:5px;border-radius:50%;background:#ffb464;display:block;box-shadow:0 0 10px #ffb464}
+  .rule{position:fixed;top:78px;left:34px;right:34px;height:1px;background:#efe7d9;opacity:.13}
+</style>
+</head>
+<body>
+<div id="stagewrap"><canvas id="stage"></canvas></div>
+<div class="rule"></div>
+<header class="nav"><b>Vesper</b><ul><li>Object</li><li>Atmosphere</li><li>Materials</li><li>Reserve</li></ul></header>
+<div class="meta">01 · PORTABLE LIGHT<br>348 MM · CAST ALUMINIUM<br>HEARTH 2 400 K</div>
+<h1 class="h1">Carry a<br><em>different</em><br>atmosphere</h1>
+<div class="hint">drag to turn the seam ↗<br>vesper / 01</div>
+<div class="shot"><i></i>HEARTH · 2 400 K · 96 LM</div>
+<script type="module">
+import { createStage } from '../js/scene3d.js';
+const c = document.getElementById('stage');
+const s = createStage(c);
+s.setMood(0.97); s.setIntensity(0.85); s.setAtmosphere('hearth'); s.setPhase(-1.15);
+s.paceCamera([0.0, 0.25, 0.95], [0.0, 0.19, 0], 34); s.snapCamera();
+window.__stage = s;
+function fit(){ const r = document.getElementById('stagewrap').getBoundingClientRect(); s.resize(r.width, r.height); }
+fit(); addEventListener('resize', fit);
+let last = performance.now(), orbit = 0;
+function loop(t){ const dt = Math.min(0.05, (t - last) / 1000); last = t; s.update(dt); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+let down = false, sx = 0, base = 0;
+addEventListener('pointerdown', e => { down = true; sx = e.clientX; base = orbit; });
+addEventListener('pointermove', e => { if (!down) return; orbit = base + (e.clientX - sx) * 0.006; s.setOrbit(orbit); s.setPhase(-1.15 + orbit * 0.95); });
+addEventListener('pointerup', () => down = false);
+</script>
+</body>
+</html>

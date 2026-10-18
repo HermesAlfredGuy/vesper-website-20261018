@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VESPER — prototype 2 · plaster dusk</title>
+<style>
+  @font-face{font-family:'IS';src:url('../assets/fonts/instrument-serif-400.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'IS';font-style:italic;src:url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'ISans';src:url('../assets/fonts/instrument-sans-400.woff2') format('woff2');font-weight:400 600;font-display:swap}
+  @font-face{font-family:'Plex';src:url('../assets/fonts/ibm-plex-mono-400.woff2') format('woff2');font-display:swap}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:#1a1714;color:#efe7d9;font-family:'ISans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  #stagewrap{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%}
+  .grid{position:fixed;inset:0;display:grid;grid-template-columns:56px repeat(12,1fr) 56px;pointer-events:none}
+  .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:24px 56px;font-size:10px;letter-spacing:.22em;text-transform:uppercase;z-index:5}
+  .nav b{font-weight:500;letter-spacing:.4em;font-size:11px}
+  .nav ul{display:flex;gap:28px;list-style:none;opacity:.7}
+  .col{position:fixed;left:56px;top:50%;transform:translateY(-46%);width:min(42vw,600px);z-index:4}
+  .kicker{font-family:'Plex',monospace;font-size:10px;letter-spacing:.2em;opacity:.66;text-transform:uppercase;display:flex;gap:14px;align-items:center;margin-bottom:26px}
+  .kicker s{display:block;width:34px;height:1px;background:currentColor;opacity:.5}
+  h1{font-family:'IS',serif;font-weight:400;font-size:clamp(44px,5.6vw,88px);line-height:.9;letter-spacing:-.018em;margin-bottom:26px}
+  h1 em{font-style:italic;color:#ffd8ae}
+  p{font-size:15.5px;line-height:1.62;max-width:38ch;opacity:.72}
+  .cta{display:inline-flex;align-items:center;gap:10px;margin-top:34px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;border-bottom:1px solid rgba(239,231,217,.4);padding-bottom:8px}
+  .ann{position:fixed;right:56px;top:50%;transform:translateY(-50%);z-index:4;font-family:'Plex',monospace;font-size:9.5px;line-height:1.6;letter-spacing:.1em;opacity:.6;text-align:right;display:grid;gap:26px}
+  .ann div b{display:block;font-weight:400;letter-spacing:.22em;opacity:.5;margin-bottom:4px}
+  .ann i{display:block;width:64px;height:1px;background:currentColor;opacity:.35;margin:8px 0 0 auto}
+  .foot{position:fixed;left:56px;right:56px;bottom:26px;display:flex;justify-content:space-between;align-items:flex-end;font-family:'Plex',monospace;font-size:10px;letter-spacing:.14em;opacity:.6;z-index:4}
+  .chips{display:flex;gap:8px;align-items:center}
+  .chip{padding:7px 12px;border:1px solid rgba(239,231,217,.22);border-radius:100px;font-size:9px;letter-spacing:.16em}
+  .chip.on{background:#efe7d9;color:#14110f;border-color:#efe7d9}
+</style>
+</head>
+<body>
+<div id="stagewrap"><canvas id="stage"></canvas></div>
+<header class="nav"><b>Vesper</b><ul><li>Object</li><li>Atmosphere</li><li>Materials</li><li>Reserve</li></ul></header>
+<div class="col">
+  <div class="kicker"><s></s>01 — the object</div>
+  <h1>Carry a<br><em>different</em><br>atmosphere.</h1>
+  <p>A 348 mm column of cast aluminium, cut by a single helical seam. Nothing glows on its surface; the light comes out of the gap.</p>
+  <a class="cta" href="#">Turn the seam ↗</a>
+</div>
+<div class="ann">
+  <div><b>i.</b>seam · 4 mm<br>machined, not moulded<i></i></div>
+  <div><b>ii.</b>plinth · 1.9 kg<br>holds the centre of gravity<i></i></div>
+</div>
+<div class="foot">
+  <div class="chips"><span class="chip on">Hearth</span><span class="chip">Ember</span><span class="chip">Lumen</span><span class="chip">Meridian</span></div>
+  <div>drag the object →&nbsp;&nbsp; vesper / 01</div>
+</div>
+<script type="module">
+import { createStage } from '../js/scene3d.js';
+const c = document.getElementById('stage');
+const s = createStage(c);
+s.setMood(0.42); s.setIntensity(0.62); s.setAtmosphere('hearth'); s.setPhase(-1.15);
+s.paceCamera([-0.22, 0.25, 1.0], [-0.30, 0.19, 0], 32); s.snapCamera();
+window.__stage = s;
+function fit(){ const r = document.getElementById('stagewrap').getBoundingClientRect(); s.resize(r.width, r.height); }
+fit(); addEventListener('resize', fit);
+let last = performance.now(), orbit = 0;
+function loop(t){ const dt = Math.min(0.05, (t - last) / 1000); last = t; s.update(dt); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+let down = false, sx = 0, base = 0;
+addEventListener('pointerdown', e => { down = true; sx = e.clientX; base = orbit; });
+addEventListener('pointermove', e => { if (!down) return; orbit = base + (e.clientX - sx) * 0.006; s.setOrbit(orbit); s.setPhase(-1.15 + orbit * 0.95); });
+addEventListener('pointerup', () => down = false);
+const chips = document.querySelectorAll('.chip');
+chips.forEach(ch => ch.addEventListener('click', () => {
+  chips.forEach(x => x.classList.remove('on')); ch.classList.add('on');
+  const map = { Hearth:'hearth', Ember:'ember', Lumen:'lumen', Meridian:'meridian' };
+  s.setAtmosphere(map[ch.textContent.trim()]);
+}));
+</script>
+</body>
+</html>
