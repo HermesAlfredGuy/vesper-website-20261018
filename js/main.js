@@ -19,14 +19,20 @@ const body = document.body;
 const sections = $$('.sec');
 const canvas = $('#gl');
 
-/* ---------- stops: one per section, from its data attributes ---------- */
+/* ---------- stops: one per section, from its data attributes ----------
+   data-cam is the editorial framing. data-cam-m is the portrait one: the same object,
+   further back and aimed below its base, so the whole column sits above the copy
+   instead of being cropped behind it. */
+const narrowQuery = window.matchMedia('(max-width: 1099px)');
 function parseCam(str) {
   const [pos, tgt, fov] = str.split('|');
   return { pos: pos.split(',').map(Number), target: tgt.split(',').map(Number), fov: Number(fov) };
 }
 function readStops() {
+  const narrow = narrowQuery.matches;
   return sections.map((s) => {
-    const c = parseCam(s.dataset.cam);
+    let c = parseCam(s.dataset.cam);
+    if (narrow && s.dataset.camM) c = parseCam(s.dataset.camM);
     return {
       y: s.offsetTop + s.offsetHeight / 2,
       pos: c.pos, target: c.target, fov: c.fov,
@@ -36,6 +42,7 @@ function readStops() {
   });
 }
 let stops = readStops();
+narrowQuery.addEventListener('change', () => { stops = readStops(); dirty = true; });
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerp3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
@@ -105,6 +112,12 @@ function bootStage() {
     canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', 'Realtime view of Vesper 01: a cast-aluminium column with a single glowing helical channel.');
     if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:stage');
+    // tools settle the damped camera before they capture. It has to be synchronous —
+    // on a slow renderer the next animation frame can be a second away, and a capture
+    // taken in between records a camera that is still travelling.
+    const stageSettle = stage.settle.bind(stage);
+    stage.settle = () => { stageSettle(); dirty = true; stage.update(0.016); };
+
     window.__stage = stage;
     stage.resize(window.innerWidth, window.innerHeight);
     stage.setFinish(state.finish);
@@ -149,7 +162,9 @@ else window.addEventListener('load', scheduleBoot, { once: true });
 
 /* ---------- configuration state: one source of truth for every control ---------- */
 const state = {
-  finish: 'slate',
+  /* raw cast aluminium, not the anodised charcoal: the hero makes a claim about what
+     the object is made of, and the darkest finish is the one that cannot show it. */
+  finish: 'foundry',
   atmosphere: 'hearth',
   intensity: 0.72,
   orbit: 0,
@@ -187,7 +202,9 @@ ATMOSPHERES.forEach((a) => {
 });
 
 const readoutText = $('#readoutText');
-const dockReadout = $('#dockReadout');
+const dimVal = $('#dimVal');
+const dockFinishVal = $('#dockFinishVal');
+const dockAtmoVal = $('#dockAtmoVal');
 const dockDim = $('#dimRange');
 const turnRange = $('#turnRange');
 
@@ -196,7 +213,11 @@ function announce() {
   const a = ATMOSPHERES.find((x) => x.id === state.atmosphere);
   const line = `${a.name} · ${a.kelvin} · ${a.lumen} · ${f.name}`;
   readoutText.textContent = line;
-  dockReadout.textContent = `${f.name} · ${a.name} · ${Math.round(state.intensity * 100)} %`;
+  if (dimVal) dimVal.textContent = `${Math.round(state.intensity * 100)} %`;
+  /* the swatches are material samples, so they say what they are both in the accessible
+     name of each button and, where there is room, next to the group they belong to */
+  if (dockFinishVal) dockFinishVal.textContent = f.name;
+  if (dockAtmoVal) dockAtmoVal.textContent = a.name;
   const cardF = $('#cardFinish'), cardA = $('#cardAtmo'), cardO = $('#cardOut');
   if (cardF) cardF.textContent = `${f.name} — ${f.sub}`;
   if (cardA) cardA.textContent = `${a.name} — ${a.kelvin} · ${a.lumen}`;
@@ -242,15 +263,13 @@ $$('[data-atmo]').forEach((el) => {
 });
 dockDim.addEventListener('input', () => setIntensity(Number(dockDim.value) / 100, true));
 
-/* ---------- turning the object: slider (touch + keyboard) and drag (pointer) ---------- */
-const SEAM_BASE = -1.15;
+/* ---------- turning the object: slider (touch + keyboard) and drag (pointer) ----------
+   The channel is part of the body, so turning the object turns the seam. There is no
+   separate seam phase to keep in sync, and nothing about the aperture is faked. */
 function setOrbit(t) {           // t in [-1, 1]
   const o = t * 2.6;
   state.orbit = o;
-  if (stage) {
-    stage.setOrbit(o);
-    stage.setPhase(SEAM_BASE + o * 0.95);
-  }
+  if (stage) stage.setOrbit(o);
 }
 turnRange.addEventListener('input', () => setOrbit(Number(turnRange.value) / 100));
 turnRange.addEventListener('keydown', (e) => {
@@ -302,7 +321,7 @@ paintMotion();
 if (motionBtn) motionBtn.addEventListener('click', toggleMotion);
 if (footMotion) footMotion.addEventListener('click', toggleMotion);
 
-/* ---------- reveal + tone + chapter indicator ---------- */
+/* ---------- reveal + tone + chapter rail ---------- */
 const io = new IntersectionObserver((entries) => {
   entries.forEach((en) => {
     if (en.isIntersecting) {
@@ -317,20 +336,55 @@ revealTargets.forEach((el) => io.observe(el));
    the first couple of seconds, show it. */
 setTimeout(() => revealTargets.forEach((el) => el.classList.add('is-in')), 2600);
 
-const toneIO = new IntersectionObserver((entries) => {
-  entries.forEach((en) => {
-    if (!en.isIntersecting) return;
-    const tone = en.target.dataset.tone;
-    body.classList.toggle('is-tone-dark', tone !== 'light');
-    body.classList.toggle('is-tone-light', tone === 'light');
-    const num = $('#chapterNum'), name = $('#chapterName');
-    if (num) num.textContent = en.target.dataset.chapter || '01';
-    if (name) name.textContent = en.target.dataset.chapterName || '';
-    activeIndex = sections.indexOf(en.target);
+/* the rail is an index of the whole document, built from the sections themselves so
+   it cannot fall out of step with them */
+const railIndex = $('#chapterIndex');
+const railTicks = [];
+if (railIndex) {
+  sections.forEach((s) => {
+    const tick = document.createElement('span');
+    tick.className = 'chapters__tick';
+    tick.dataset.chapter = s.dataset.chapter;
+    railIndex.appendChild(tick);
+    railTicks.push(tick);
   });
-}, { rootMargin: '-45% 0px -45% 0px' });
-sections.forEach((s) => toneIO.observe(s));
+}
+function paintRail(i) {
+  railTicks.forEach((tk, n) => tk.classList.toggle('is-on', n === i));
+}
+
+/* The chapter state — tone, rail tick, chapter number, and whether the dock stands
+   down — is derived from scroll position, not from IntersectionObserver callbacks.
+   Observers are delivered in the frame's rendering step, which a heavy WebGL frame
+   starves on a slow renderer: the states would lag by seconds or never arrive. A
+   scroll handler cannot be starved, and this is cheap arithmetic. */
 let activeIndex = 0;
+const reserveSec = $('#reserve');
+function syncChapter() {
+  const mid = window.scrollY + window.innerHeight * 0.5;
+  let active = 0;
+  sections.forEach((s, i) => { if (s.offsetTop <= mid) active = i; });
+  const s = sections[active];
+  if (s) {
+    const light = s.dataset.tone === 'light';
+    body.classList.toggle('is-tone-dark', !light);
+    body.classList.toggle('is-tone-light', light);
+    const num = $('#chapterNum'), name = $('#chapterName');
+    if (num) num.textContent = s.dataset.chapter || '01';
+    if (name) name.textContent = s.dataset.chapterName || '';
+    if (active !== activeIndex) { activeIndex = active; paintRail(active); }
+  }
+  if (reserveSec) {
+    // the dock stands down once the reservation chapter owns the screen: the page
+    // offers one primary action, and it is the one already in front of you
+    const r = reserveSec.getBoundingClientRect();
+    body.classList.toggle('is-end', r.top < window.innerHeight * 0.40 && r.bottom > window.innerHeight * 0.55);
+  }
+}
+function syncChapterAndWake() { syncChapter(); dirty = true; }
+window.addEventListener('scroll', syncChapterAndWake, { passive: true });
+window.addEventListener('resize', syncChapterAndWake, { passive: true });
+syncChapter();
 
 /* ---------- the loop: one owner, throttled, and never in front of page load ---------- */
 const progressBar = $('#progressBar');

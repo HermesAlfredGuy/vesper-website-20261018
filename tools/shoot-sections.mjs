@@ -1,6 +1,7 @@
 /* One browser, every section: captures the real page at desktop and mobile,
    and reports console/page errors once. Usage:
-   node tools/shoot-sections.mjs <url> <outDir> [width] [height] [prefix]
+   node tools/shoot-sections.mjs <url> <outDir> [width] [height] [prefix] [scale]
+   scale > 1 renders supersampled; downscale afterwards (see the note in docs/pass2).
 */
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
@@ -11,6 +12,7 @@ const outDir = process.argv[3] || 'refs';
 const W = Number(process.argv[4] || 1440);
 const H = Number(process.argv[5] || 900);
 const prefix = process.argv[6] || 'sec';
+const scale = Number(process.argv[7] || 1);
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -19,7 +21,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader',
          '--hide-scrollbars', '--force-color-profile=srgb', '--font-render-hinting=none'],
 });
-const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, reducedMotion: 'no-preference' });
+const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: scale, reducedMotion: 'no-preference' });
 const page = await ctx.newPage();
 const problems = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`); });
@@ -30,7 +32,7 @@ await page.goto(url, { waitUntil: 'load', timeout: 60000 });
 await page.waitForTimeout(1500);
 // the live stage is loaded lazily, after the first paint: wait for it on every device
 try {
-  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live') && window.__stage, { timeout: 180000, polling: 500 });
+  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live') && window.__stage, null, { timeout: 180000, polling: 500 });
 } catch (e) {
   console.log('PROBLEMS ' + JSON.stringify(['stage did not go live']));
 }

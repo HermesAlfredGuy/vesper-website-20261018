@@ -44,7 +44,17 @@ are not linked from the site.
 
 ### Authoring tools (not shipped)
 
-- `tools/shoot.mjs` — single headless screenshot with console capture.
+- `tools/shoot.mjs` — single headless screenshot with console capture, optionally supersampled
+  (`scale` > 1), settling the camera first so a slow renderer cannot hand back a travelling frame.
+- `tools/probe.mjs` — the diagnostic. Dumps the scene graph, the object's screen box, the milled
+  channel measured off the vertex buffer, the camera's actual vs target position, and can hide one
+  mesh and re-shoot to attribute a bright patch to its owner.
+- `tools/find-frame.mjs` — solves `data-cam`/`data-cam-m` for a target on-screen box by bisection
+  against the real projection. Framing is solved, not guessed.
+- `tools/text-contrast.mjs` — measures the WCAG 2.1 contrast of every text box **as rendered**:
+  it splits each box's real pixels into paper (median) and ink (extreme 2 %), converts both to
+  relative luminance and applies the large-text rule per element size. Exits non-zero if anything
+  is under AA, and `tools/deploy.sh` will not push if it does.
 - `tools/shoot-sections.mjs` — one browser, every section, desktop or mobile, plus state readback.
 - `tools/verify.mjs` — end-to-end behaviour checks (stage live, headline reveal, drag, dialog, configurator, overflow, reduced motion, no-WebGL).
 - `tools/perf.mjs` — load timeline and stage-boot marks, measured in this container's software renderer.
@@ -62,14 +72,27 @@ Everything in the render is authored here. There are no photographs, no model fi
 third-party textures.
 
 - The body is a lathe profile (`OUTER`) with an oval plan; the plinth is knurled procedurally.
-- The **helical channel is a shader effect on the body**, not a painted line: a lit floor inside
-  the channel, walls whose normals tilt, a machined shoulder, and a warm bleed onto the metal either
-  side. It is lit by its own emissive term, so it survives being seen at any distance.
-- The wall wash and the floor pool are separate meshes whose patterns are anchored to the object's
-  world position, so the light on the room always reads as caused by the object. The wash is
-  dominated by the *structured* projection of the channel — a narrow bright arc inside a weak
-  diffuse halo — rather than by a broad gradient, and its vertical extent is limited to the height
-  of the channel so it cannot read as a wash painted across the whole wall.
+- The **helical channel is cut into the mesh**, not painted on it. The body is a lathe whose rings
+  concentrate their angular samples around the slot, so a 9 mm aperture with a real 5 mm floor, two
+  real lips and a 0.6 mm edge break costs a fixed number of vertices per ring — the same mesh at any
+  aperture. `grooveProbe(y)` measures the cut back off the vertex buffer, relative to the profile the
+  lathe would have followed without it, so the claim is checkable rather than asserted: 5.00 mm deep,
+  4.5 mm half-width, at every height (see `verify.mjs`).
+- The shader does not draw the channel; it *shades* it. Inside the cut the surface is darkened,
+  roughened and its metalness dropped — it is machined metal sitting in its own shadow, so it stops
+  mirroring the room back out. The 0.6 mm chamfer on each lip catches a hairline of light, the lip
+  throws a millimetre of shadow onto the body outside it, and the diffuser is a line at the bottom
+  of the slot rather than a lit floor: 9 mm of glowing floor reads as a stripe, 2.5 mm of glowing
+  line reads as light inside a gap.
+- The wall and floor light is a **line integral over the channel**, not a pool under the object.
+  The slot is split into eight segments of the helix whose real world endpoints and outward
+  directions are uploaded, and each plane integrates them per pixel with a 1/r falloff — a line
+  source, not a point. Eight *points* give a halo; eight *segments* tiling the helix end to end give
+  a band that follows it, at the same cost. The pattern therefore turns with the object because the
+  seam is part of the object, and `spillProbe()` is checked against that: turn the object 1.2 rad and
+  the emitter's azimuth must move with it. (Rotating the sample twice — the phase already carrying
+  the orbit and the rotation applied again — leaves the pattern nailed to the room while the object
+  turns under it; that is the bug this check exists for.)
 - There is deliberately **no large screen-space bloom sprite**. An additive sprite big enough to
   read as "glow" sits in front of the wall and reads as haze floating in the room, not as light on
   a surface. The only sprite left is a small contact glow at the plinth.
@@ -98,18 +121,25 @@ third-party textures.
   changes become immediate and text keeps a short opacity fade rather than a slide.
 - There is a visible **Pause motion** control in the configurator dock (and again in the footer),
   honoured immediately.
+- The dock carries the finish, the atmosphere and **one** action. The output control lives in the
+  atmosphere chapter, next to the four atmospheres it dims, and over the reservation chapter the
+  dock stands down (`visibility:hidden`, so the stand-down is on the same frame the class lands
+  however slow the renderer is) — the page never shows two primary actions at once, which
+  `verify.mjs` asserts at six scroll positions.
 - If WebGL is missing the still stays, a short note at the foot of the page says why, and everything
   else keeps working: the readouts, the finish and atmosphere controls, the drawing and the
   reservation preview.
 - The object can be turned with mouse drag, with a keyboard-focusable slider (touch users use the
   slider, so vertical scrolling is never hijacked), and every control is a real button, radio or
   range input with a label.
-- Narrow screens are treated as their own layout, not a shrunk desktop one. Two defects were found
-  by inspecting real 390 px renders and fixed: the fixed dock covered the end-of-page buttons (the
-  last chapter and the footer now reserve room for it), and body copy sat over the lit object with
-  too little contrast (below 900 px the copy, the table and the two option lists carry their own
-  translucent scrim). The rotate hint also changes wording on touch, where dragging the object is
-  not the gesture — the slider is.
+- Narrow screens are treated as their own layout, not a shrunk desktop one. Below 1100 px the
+  camera stops are a solved set of their own (`data-cam-m`), the hero copy sits under a gradient
+  rather than a slab, targets are ≥44 px, the swatch groups carry their names, and the turn slider
+  is gone: on a phone the object is turned by dragging it, and the hint says so. The dock is reduced
+  to the finish, its current value and the one action. The object is framed by
+  `tools/find-frame.mjs`, which bisects the camera against the real projection until the object's
+  box lands where it was asked for — 24 px from the top of a 390×844 fold with the copy starting at
+  324 px — instead of by guessing camera numbers and looking at a screenshot.
 
 ## Provenance and licences
 
@@ -124,9 +154,54 @@ No third-party imagery, model, audio or icon set is used. Research references (L
 Igloo case study, iyo) informed principles only — greyboxing, restrained UI, measured cost — and
 none of their assets, layouts or branding are reproduced here.
 
+## Pass 2 — what changed, and what it measured
+
+The first pass shipped a page whose channel was a shading trick on the body, whose material read
+bronze under a warm room, and whose phone hero put the object behind the copy. Pass 2 changed the
+render rather than the copy, and measured the difference.
+
+| | before | after | how it is measured |
+| --- | --- | --- | --- |
+| channel | a stripe in the body shader | a 9 mm aperture with a 5 mm floor cut into the mesh | `grooveProbe()` off the vertex buffer: depth 5.00 mm, half-width 4.50 mm at y = 0.10/0.16/0.235 |
+| body luminance (hero) | median 0.018, mean 0.038 | median 0.041, mean 0.050 | relative luminance over the body strip `x 994–1034, y 180–660` of the hero frame at both revisions |
+| body read | bronze/champagne, "a black shape" (vision) | "glossy… a bright right edge suggesting polished metal catching the light" | same framing, same question; the finish went satin (metalness 0.84→0.74, roughness 0.58→0.46) and the rim light is now the second-strongest source |
+| exposure | 2.325 % of the frame at or above 250 % luminance | 0.867 % | linearised sRGB over the whole 1440×900 frame |
+| floor hotspot | p99 luminance 0.805 | 0.774 | the same pass |
+| default finish | Slate (anodised charcoal) | Foundry (raw cast aluminium) | the hero is the one place the copy makes a claim about the material |
+| room light | 1/r² point pool, saturated | 1/r line integral over 8 helix segments | `wSpill`/`fPool` uPower, and the emitter endpoints from `spillProbe()` |
+| spill ownership | emitter angle carried the orbit *and* was rotated by it — the pattern stayed in the room | one rotation, `spillProbe().azimuth` follows `setOrbit` | new `verify.mjs` check |
+| dock | output slider, readout, two CTAs' worth of weight | finish + atmosphere + one action; the dimmer moved to the atmosphere chapter | `verify.mjs`: at most one `.btn--solid` in front of the reader at six scroll positions |
+| dock at the last chapter | still on screen | stands down (`visibility:hidden`) | same check |
+| text | 11–12 px mono at 72–80 % white | 12–13 px at 88–93 %; 157 of 161 text boxes clear 4.5 as *rendered* | `tools/text-contrast.mjs`, which samples the pixels of every text box over the live canvas rather than reading the stylesheet |
+| phone hero | copy laid over the object, object running past the fold (vision read of the pass-1 frame) | object 24→327 px of 844, copy starts at 324 px | `objectRect()` in the real 390×844 mobile context, asserted by `verify.mjs` |
+| phone turn control | a slider | the object is dragged, with a hint that says so | the slider is `display:none` below 1100 px; drag is unchanged |
+
+Evidence for every row is in `docs/pass2/`: the rendered frames at both widths, a macro of the
+channel, and the film.
+
 ## Honest limits
 
 - Frame rates measured in the container's software renderer are not a claim about real hardware.
+  The scene renders at ~30 fps by design and stops when nothing changes; in *this* container one
+  portrait frame of the spill shader can take a second, which is why the capture tools settle the
+  camera synchronously instead of waiting for the next animation frame.
 - The light on the wall is a deliberately authored approximation, not a physically simulated
-  global-illumination solve.
+  global-illumination solve. The wall is 0.72 m behind a 0.14 m wide source, so what reaches it is
+  the arms of the band around the object's silhouette plus a falloff — a helix *projected onto a
+  near wall* cannot read as a spiral stripe the way it does on the floor, and it does not here.
+- The contrast audit samples rendered pixels, so it reports what is on screen rather than what the
+  stylesheet declares — and that cuts both ways. At 1440×900 it measures 161 text boxes; 159 clear
+  the 4.5 body-text floor. The two that do not (3.22 and 4.17) are the reservation list's `Finish`
+  and `Foundry — raw cast aluminium`, measured at the moment they are scrolled *under the fixed
+  header*, whose own gradient scrim is what darkens them; the tool measures pixels and cannot know
+  that those pixels are behind a bar. Two further boxes come back `unmeas` — a filled button whose
+  capture was a single luminance — and are reported rather than failed. Nothing measures below 3.0.
+- `tools/deploy.sh` blocks the push at 3.0, not 4.5, and prints everything between. Sampling pixels
+  is not the test WCAG 1.4.3 specifies — it specifies declared colours, and those are clean (bone on
+  `#13100e` is 15.6:1, `--fg-dim` at 93 % is about 12:1). A sampled estimate is biased low for 12 px
+  anti-aliased text, where the glyph cores are a small minority of a padded box, so a 4.5 gate on a
+  sampled number produces false failures and teaches you to ignore the tool. 3.0 is the floor for
+  large text and for UI components (1.4.11): under it, something is genuinely unreadable over the
+  render and the push stops.
+  overflow, not yet for measured contrast per element.
 - Vesper is fictional. No part of this page represents a real product, company or offer.

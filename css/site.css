@@ -1,6 +1,11 @@
 /* VESPER — site.css
    Art direction: the only warm colour on the page is light the product emits.
-   UI stays in ink / bone / stone / graphite, with hairlines doing the drawing. */
+   UI stays in ink / bone / stone / graphite, with hairlines doing the drawing.
+
+   Pass 2 ─ two tokens, not one. `--hairline` is a drawing line: it separates rows
+   and it is allowed to be faint. `--edge` is the outline of a *control*, so it has
+   to clear 3:1 against what is behind it. Using the drawing line for both is the
+   classic way a dark interface fails 1.4.11 while looking fine. */
 
 @font-face{font-family:'Instrument Serif';src:url('../assets/fonts/instrument-serif-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:'Instrument Serif';src:url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');font-weight:400;font-style:italic;font-display:swap}
@@ -10,12 +15,15 @@
 :root{
   --ink:#14110e;
   --bone:#efe7d9;
-  --stone:#9a9184;
+  --stone:#b0a798;
   --graphite:#26221f;
   --hair:rgba(239,231,217,.20);
   --hair-ink:rgba(20,17,14,.18);
+  --edge:rgba(239,231,217,.46);
+  --edge-ink:rgba(20,17,14,.50);
   --pad:clamp(18px,4.6vw,72px);
   --maxw:1560px;
+  --rail:0px;                     /* the chapter rail's own column, wide screens only */
   --ease:cubic-bezier(.16,1,.3,1);
   --emission:#ffb464;
   --z-stage:0; --z-scrim:1; --z-copy:3; --z-nav:30; --z-dock:40; --z-modal:60;
@@ -27,22 +35,42 @@ html:focus-within{scroll-behavior:smooth}
 body{
   margin:0;background:#13100e;color:var(--bone);
   font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
-  font-size:17px;line-height:1.62;font-weight:400;
+  font-size:18px;line-height:1.62;font-weight:400;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
   overflow-x:hidden;
 }
-@media (min-width:1100px){body{font-size:18px}}
+@media (min-width:1100px){body{font-size:19px}}
 img{max-width:100%;display:block}
 button{font:inherit;color:inherit}
 a{color:inherit}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
 /* tone: the page alternates between dusk and plaster daylight */
-body.is-tone-dark{--fg:var(--bone);--fg-dim:rgba(239,231,217,.68);--hairline:var(--hair)}
-body.is-tone-light{--fg:var(--ink);--fg-dim:rgba(20,17,14,.70);--hairline:var(--hair-ink);color:var(--ink)}
+body.is-tone-dark{--fg:var(--bone);--fg-dim:rgba(239,231,217,.93);--hairline:var(--hair);--control-edge:var(--edge)}
+body.is-tone-light{--fg:var(--ink);--fg-dim:rgba(20,17,14,.90);--hairline:var(--hair-ink);--control-edge:var(--edge-ink);color:var(--ink)}
 body{color:var(--fg);transition:color .5s var(--ease)}
-body.is-tone-light .stage__scrim{background:linear-gradient(90deg,rgba(232,225,212,.96) 0%,rgba(232,225,212,.94) 42%,rgba(232,225,212,.42) 60%,rgba(232,225,212,0) 80%)}
-body.is-tone-dark  .stage__scrim{background:linear-gradient(90deg,rgba(15,12,10,.95) 0%,rgba(15,12,10,.90) 42%,rgba(15,12,10,.38) 60%,rgba(15,12,10,0) 80%)}
+body.is-tone-light .stage__scrim{background:linear-gradient(90deg,rgba(232,225,212,.96) 0%,rgba(232,225,212,.95) 46%,rgba(232,225,212,.87) 66%,rgba(232,225,212,.44) 84%,rgba(232,225,212,0) 94%)}
+/* the scrim is the page's background where the render would otherwise be behind the
+   text. It is a gradient with no edge, and it holds ~0.94 out to 46 % of the width so
+   the small mono labels clear AA against the *lit* render and not just against the page. */
+body.is-tone-dark  .stage__scrim{background:linear-gradient(90deg,rgba(15,12,10,.95) 0%,rgba(15,12,10,.94) 46%,rgba(15,12,10,.62) 66%,rgba(15,12,10,.20) 84%,rgba(15,12,10,0) 94%)}
+/* A legibility halo, not a glow: on a flat background the halo colour is the background,
+   so nothing changes; over the render it darkens the couple of millimetres around each
+   glyph, which is where a 12 px mono label loses its contrast. Measured by
+   tools/text-contrast.mjs — the halo is part of what the reader sees, so it is measured. */
+body.is-tone-light .sec p, body.is-tone-light .sec span, body.is-tone-light .sec a,
+body.is-tone-light .sec dt, body.is-tone-light .sec dd, body.is-tone-light .sec th,
+body.is-tone-light .sec td, body.is-tone-light .sec figcaption, body.is-tone-light .sec li,
+body.is-tone-light .sec h2, body.is-tone-light .sec h3,
+body.is-tone-light .foot p, body.is-tone-light .foot span, body.is-tone-light .foot a,
+body.is-tone-light .foot dt, body.is-tone-light .foot dd, body.is-tone-light .foot h2,
+body.is-tone-light .foot li{text-shadow:0 1px 14px rgba(243,236,225,.85),0 0 5px rgba(243,236,225,.60)}
+body.is-tone-dark .sec p, body.is-tone-dark .sec span, body.is-tone-dark .sec a,
+body.is-tone-dark .sec dt, body.is-tone-dark .sec dd, body.is-tone-dark .sec th,
+body.is-tone-dark .sec td, body.is-tone-dark .sec figcaption, body.is-tone-dark .sec li,
+body.is-tone-dark .foot p, body.is-tone-dark .foot span, body.is-tone-dark .foot a,
+body.is-tone-dark .foot dt, body.is-tone-dark .foot dd, body.is-tone-dark .foot h2,
+body.is-tone-dark .foot li{text-shadow:0 1px 14px rgba(10,8,7,.80),0 0 5px rgba(10,8,7,.55)}
 
 :focus-visible{outline:2px solid var(--fg);outline-offset:3px;border-radius:2px}
 
@@ -60,10 +88,10 @@ body.is-tone-dark  .stage__scrim{background:linear-gradient(90deg,rgba(15,12,10,
 body.no-gl .stage__poster{opacity:1}
 body.no-gl #gl{display:none}
 .stage__fallback{
-  position:fixed;left:var(--pad);bottom:118px;z-index:var(--z-dock);max-width:min(46ch,42vw);
+  position:fixed;left:var(--pad);bottom:186px;z-index:var(--z-dock);max-width:min(46ch,42vw);
   border-left:1px solid var(--fg-dim);padding:2px 0 2px 14px;
 }
-.stage__fallback p{margin:0;font-family:'IBM Plex Mono';font-size:10.5px;line-height:1.7;letter-spacing:.06em;color:var(--fg-dim)}
+.stage__fallback p{margin:0;font-family:'IBM Plex Mono';font-size:12.5px;line-height:1.7;letter-spacing:.05em;color:var(--fg-dim)}
 .stage__fallback[hidden]{display:none}
 
 /* ── progress + nav ───────────────────────────────────────────────── */
@@ -74,50 +102,78 @@ body.no-gl #gl{display:none}
   position:fixed;top:0;left:0;right:0;z-index:var(--z-nav);
   display:flex;align-items:center;justify-content:space-between;gap:18px;
   padding:clamp(14px,2vw,26px) var(--pad);
-  mix-blend-mode:normal;
 }
-.nav__mark,.foot__mark{font-family:'Instrument Sans';font-weight:500;font-size:13px;letter-spacing:.42em;text-transform:uppercase;text-decoration:none}
+/* The header floats over the render, and the render is sometimes a lit wall — at which
+   point bone-on-bone is a real contrast failure, not a rounding error. A scrim, not a bar:
+   it is a gradient with no edge, so it never reads as chrome, and it is the same device
+   the phone hero uses. Measured with tools/text-contrast.mjs. */
+.nav::before{
+  content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(to bottom,rgba(11,9,8,.86),rgba(11,9,8,.52) 58%,rgba(11,9,8,0));
+}
+body.is-tone-light .nav::before{
+  background:linear-gradient(to bottom,rgba(239,231,217,.88),rgba(239,231,217,.55) 58%,rgba(239,231,217,0));
+}
+.nav__mark,.foot__mark{font-family:'Instrument Sans';font-weight:500;font-size:14px;letter-spacing:.42em;text-transform:uppercase;text-decoration:none}
 .nav__links{display:none;gap:clamp(16px,2.4vw,34px)}
 @media (min-width:820px){.nav__links{display:flex}}
 .nav__links a{
-  font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
-  text-decoration:none;color:var(--fg-dim);padding:6px 0;border-bottom:1px solid transparent;transition:color .3s,border-color .3s;
+  font-family:'IBM Plex Mono';font-size:12.5px;letter-spacing:.13em;text-transform:uppercase;
+  text-decoration:none;color:var(--fg-dim);padding:8px 0;border-bottom:1px solid transparent;transition:color .3s,border-color .3s;
 }
-.nav__links a:hover{color:var(--fg);border-bottom-color:var(--hairline)}
+.nav__links a:hover{color:var(--fg);border-bottom-color:var(--control-edge)}
 
-.chapters{
-  display:none;position:fixed;left:var(--pad);top:50%;transform:translateY(-50%);z-index:var(--z-nav);
-  font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-dim);
-  writing-mode:horizontal-tb;gap:10px;align-items:center;flex-direction:column;
+/* ── the chapter rail ─────────────────────────────────────────────────
+   It used to float in the page gutter, vertically centred, belonging to nothing.
+   It now has its own column on the same grid as the copy, and it carries the whole
+   chapter list — so it reads as an index of where you are, not as a stray label. */
+.chapters{display:none}
+@media (min-width:1240px){
+  :root{--rail:52px}
+  .chapters{
+    display:flex;flex-direction:column;align-items:flex-start;gap:9px;
+    position:fixed;left:var(--pad);top:50%;transform:translateY(-50%);z-index:var(--z-nav);
+    font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-dim);
+  }
 }
-@media (min-width:1240px){.chapters{display:flex}}
-.chapters__rule{display:block;width:1px;height:58px;background:currentColor;opacity:.32}
-.chapters__n{font-size:12px;color:var(--fg)}
+.chapters__n{font-size:14px;letter-spacing:.08em;color:var(--fg)}
+.chapters__rule{display:block;width:1px;height:40px;background:currentColor;opacity:.60;margin-left:5px}
+.chapters__t{width:23px;font-size:12px;line-height:1.2;letter-spacing:.13em;writing-mode:vertical-rl;transform:rotate(180deg);color:var(--fg)}
+.chapters__index{display:flex;flex-direction:column;gap:7px;margin-top:6px}
+.chapters__tick{display:block;width:12px;height:1px;background:currentColor;opacity:.60;transition:width .4s var(--ease),opacity .4s var(--ease)}
+.chapters__tick.is-on{width:22px;opacity:1;background:var(--fg)}
 
 /* ── buttons ──────────────────────────────────────────────────────── */
 .btn{
   display:inline-flex;align-items:center;gap:10px;justify-content:center;
-  font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
-  padding:14px 22px;border-radius:2px;border:1px solid var(--hairline);background:transparent;
-  cursor:pointer;text-decoration:none;min-height:46px;transition:background .35s var(--ease),color .35s var(--ease),border-color .35s var(--ease);
+  font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  padding:14px 22px;border-radius:2px;border:1px solid var(--control-edge);background:transparent;
+  cursor:pointer;text-decoration:none;min-height:48px;transition:background .35s var(--ease),color .35s var(--ease),border-color .35s var(--ease);
 }
 .btn--solid{background:var(--fg);color:var(--ink);border-color:var(--fg)}
 body.is-tone-dark .btn--solid{color:var(--ink)}
 .btn--solid:hover{background:var(--emission);border-color:var(--emission);color:#1a1207}
-.btn--ghost:hover{border-color:var(--fg);background:color-mix(in srgb,var(--fg) 8%,transparent)}
-.btn--sm{padding:10px 16px;min-height:38px;font-size:10px}
+.btn--ghost:hover{border-color:var(--fg);background:color-mix(in srgb,var(--fg) 10%,transparent)}
+.btn--sm{padding:10px 16px;min-height:44px;font-size:11.5px}
+/* a link that must stay quiet next to the one primary action */
+.link{
+  display:inline-flex;align-items:center;gap:8px;min-height:44px;
+  font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--fg-dim);text-decoration:none;border-bottom:1px solid var(--control-edge);padding-bottom:2px;
+  transition:color .3s,border-color .3s;
+}
+.link:hover{color:var(--fg);border-bottom-color:var(--fg)}
 
 /* ── sections ─────────────────────────────────────────────────────── */
 .sec{position:relative;z-index:var(--z-copy)}
 .sec__inner{
-  max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);
+  max-width:var(--maxw);margin:0 auto;padding:0 var(--pad) 0 calc(var(--pad) + var(--rail));
   position:relative;z-index:var(--z-copy);
   display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(26px,4vw,48px);align-items:center;
 }
 @media (min-width:1024px){
   /* left: everything readable. right: the object, always. */
   .sec__inner{grid-template-columns:min(45vw,610px) minmax(0,1fr)}
-  .sec--specs .sec__inner,.sec--reserve .sec__inner{align-items:center}
 }
 .sec--hero .sec__inner{display:block}
 .sec--hero .copy,
@@ -131,26 +187,26 @@ body.is-dragging ::selection{background:transparent}
 
 .kicker{
   display:flex;align-items:center;gap:14px;margin:0 0 clamp(16px,2.2vw,26px);
-  font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-dim);
+  font-family:'IBM Plex Mono';font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-dim);
 }
 .kicker s{display:block;width:clamp(24px,4vw,54px);height:1px;background:currentColor;opacity:.5;text-decoration:none}
 
 .display{
   font-family:'Instrument Serif',Georgia,serif;font-weight:400;
-  font-size:clamp(42px,7vw,104px);line-height:.9;letter-spacing:-.028em;margin:0 0 clamp(20px,2.4vw,30px);
+  font-size:clamp(38px,7vw,104px);line-height:.9;letter-spacing:-.028em;margin:0 0 clamp(20px,2.4vw,30px);
   text-wrap:balance;
 }
 .display em{font-style:italic;color:var(--emission)}
 .h2{
   font-family:'Instrument Serif',Georgia,serif;font-weight:400;
-  font-size:clamp(30px,4vw,62px);line-height:.96;letter-spacing:-.022em;margin:0 0 clamp(16px,1.8vw,26px);
+  font-size:clamp(32px,4vw,62px);line-height:.96;letter-spacing:-.022em;margin:0 0 clamp(16px,1.8vw,26px);
   text-wrap:balance;
 }
-.h2--big{font-size:clamp(36px,5vw,80px)}
-.lede{font-size:clamp(15px,1.15vw,19px);line-height:1.6;color:var(--fg-dim);max-width:46ch;margin:0}
-.lede--sm{font-size:clamp(14.5px,1vw,17px);max-width:40ch}
+.h2--big{font-size:clamp(38px,5vw,80px)}
+.lede{font-size:clamp(16px,1.2vw,20px);line-height:1.6;color:var(--fg-dim);max-width:46ch;margin:0}
+.lede--sm{font-size:clamp(15.5px,1.1vw,18.5px);max-width:42ch}
 .copy p+p{margin-top:1em}
-.copy > p:not(.kicker):not(.lede){max-width:46ch;color:var(--fg-dim)}
+.copy > p:not(.kicker):not(.lede){max-width:46ch;color:var(--fg-dim);font-size:1.02em}
 
 /* reveal: masked lines + short opacity rise, never a slide-in */
 .ln{display:block;overflow:hidden}
@@ -163,45 +219,45 @@ body.is-dragging ::selection{background:transparent}
 
 /* hero furniture */
 .sec--hero .copy{max-width:min(58vw,760px)}
-.turn{max-width:var(--maxw);margin:clamp(26px,4vw,52px) auto 0;padding:0 var(--pad);display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-.turn__label{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-dim)}
+.turn{max-width:var(--maxw);margin:clamp(26px,4vw,52px) auto 0;padding:0 var(--pad) 0 calc(var(--pad) + var(--rail));display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.turn__label{font-family:'IBM Plex Mono';font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-dim)}
 .turn__input{
-  -webkit-appearance:none;appearance:none;width:min(340px,52vw);height:30px;background:transparent;cursor:ew-resize;
+  -webkit-appearance:none;appearance:none;width:min(340px,52vw);height:34px;background:transparent;cursor:ew-resize;
 }
-.turn__input::-webkit-slider-runnable-track{height:1px;background:var(--hairline)}
-.turn__input::-moz-range-track{height:1px;background:var(--hairline)}
+.turn__input::-webkit-slider-runnable-track{height:1px;background:var(--control-edge)}
+.turn__input::-moz-range-track{height:1px;background:var(--control-edge)}
 .turn__input::-webkit-slider-thumb{
-  -webkit-appearance:none;appearance:none;width:12px;height:12px;border-radius:50%;
-  background:var(--fg);margin-top:-6px;border:0;box-shadow:0 0 0 1px rgba(0,0,0,.35);
+  -webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--fg);margin-top:-7px;border:0;box-shadow:0 0 0 1px rgba(0,0,0,.35);
 }
-.turn__input::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--fg)}
+.turn__input::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--fg)}
 /* on a touch screen this slider *is* the interaction, so it gets a real target:
-   a thicker track and a thumb you can actually hit with a thumb */
+   a thicker track and a 44px-tall grab area around a thumb you can actually hit */
 @media (pointer:coarse),(max-width:900px){
   .turn__input{height:52px;width:min(340px,72vw)}
-  .turn__input::-webkit-slider-runnable-track{height:2px;background:rgba(239,231,217,.34)}
-  .turn__input::-moz-range-track{height:2px;background:rgba(239,231,217,.34)}
-  .turn__input::-webkit-slider-thumb{width:24px;height:24px;margin-top:-11px;box-shadow:0 0 0 1px rgba(0,0,0,.4),0 0 0 6px rgba(239,231,217,.10)}
-  .turn__input::-moz-range-thumb{width:24px;height:24px}
+  .turn__input::-webkit-slider-runnable-track{height:2px;background:var(--edge)}
+  .turn__input::-moz-range-track{height:2px;background:var(--edge)}
+  .turn__input::-webkit-slider-thumb{width:26px;height:26px;margin-top:-12px;box-shadow:0 0 0 1px rgba(0,0,0,.4),0 0 0 7px rgba(239,231,217,.12)}
+  .turn__input::-moz-range-thumb{width:26px;height:26px}
 }
-.turn__hint{margin:0;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-dim);opacity:.8}
+.turn__hint{margin:0;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-dim)}
 
 .readout{
   display:flex;align-items:center;gap:10px;margin:0;
-  font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-dim);
+  font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--fg-dim);
 }
 .readout__dot{width:6px;height:6px;border-radius:50%;background:var(--emission);box-shadow:0 0 10px var(--emission);flex:none;
   animation:pulse 4.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
 
 .herofoot{
-  max-width:var(--maxw);margin:clamp(22px,3vw,40px) auto 0;padding:0 var(--pad);
+  max-width:var(--maxw);margin:clamp(22px,3vw,40px) auto 0;padding:0 var(--pad) 0 calc(var(--pad) + var(--rail));
   display:flex;align-items:center;justify-content:space-between;gap:clamp(18px,3vw,40px);flex-wrap:wrap;
 }
 .herofoot .readout,.herofoot .scrollcue{max-width:min(45vw,640px)}
 .scrollcue{
   display:flex;align-items:center;gap:12px;text-decoration:none;margin:0;
-  font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--fg-dim);
+  font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-dim);
 }
 .scrollcue i{display:block;width:46px;height:1px;background:currentColor;position:relative}
 .scrollcue i::after{content:'';position:absolute;right:0;top:-2px;width:5px;height:5px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);opacity:.7}
@@ -212,202 +268,273 @@ body.is-dragging ::selection{background:transparent}
 .callout{
   display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:baseline;
   padding-top:14px;border-top:1px solid var(--hairline);
-  font-family:'IBM Plex Mono';font-size:9.5px;line-height:1.7;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-dim);
+  font-family:'IBM Plex Mono';font-size:12px;line-height:1.7;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-dim);
 }
-.callout b{font-weight:400;font-size:11px;letter-spacing:.24em;color:var(--fg)}
+.callout b{font-weight:400;font-size:13px;letter-spacing:.22em;color:var(--fg)}
 .callout i{display:none}
 
 /* ── atmosphere ───────────────────────────────────────────────────── */
 .sec--atmo .copy{max-width:none}
-.atmos{list-style:none;margin:clamp(22px,2.6vw,34px) 0 0;padding:0;border-top:1px solid var(--hairline)}
-.atmos li{border-bottom:1px solid var(--hairline)}
+.atmos{list-style:none;margin:clamp(22px,2.6vw,34px) 0 0;padding:0;border-top:1px solid var(--control-edge)}
+.atmos li{border-bottom:1px solid var(--control-edge)}
 .atmos__row{
-  width:100%;background:transparent;border:0;text-align:left;cursor:pointer;
+  width:100%;background:transparent;border:0;text-align:left;cursor:pointer;min-height:56px;
   display:grid;grid-template-columns:9px 1.2fr .9fr .6fr;gap:8px 14px;align-items:baseline;
   padding:clamp(14px,1.5vw,20px) 4px;transition:opacity .4s var(--ease),padding-left .4s var(--ease);
 }
 .atmos__row::before{
-  content:'';width:8px;height:8px;border-radius:50%;background:var(--c,#8a8175);
-  box-shadow:0 0 9px var(--c,transparent);align-self:center;opacity:.55;transition:opacity .4s var(--ease);
+  content:'';width:9px;height:9px;border-radius:50%;background:var(--c,#8a8175);
+  box-shadow:0 0 9px var(--c,transparent);align-self:center;opacity:.7;transition:opacity .4s var(--ease);
 }
-.atmos__row[aria-pressed="true"]::before{opacity:1;box-shadow:0 0 12px var(--c),0 0 0 3px color-mix(in srgb,var(--c) 20%,transparent)}
+.atmos__row[aria-pressed="true"]::before{opacity:1;box-shadow:0 0 12px var(--c),0 0 0 3px color-mix(in srgb,var(--c) 24%,transparent)}
 .atmos__row[aria-pressed="true"]{background:color-mix(in srgb,var(--fg) 5.5%,transparent);box-shadow:inset 3px 0 0 var(--c)}
 .atmos__row[aria-pressed="true"] .atmos__b{color:var(--fg)}
 .atmos__row:hover{padding-left:10px}
-.atmos__n{font-family:'Instrument Serif';font-size:clamp(20px,1.9vw,29px);letter-spacing:-.01em}
-.atmos__k,.atmos__lm{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.16em;color:var(--fg-dim);text-align:right}
-.atmos__b{grid-column:2/-1;font-size:13.5px;line-height:1.55;color:var(--fg-dim);max-width:40ch}
+.atmos__n{font-family:'Instrument Serif';font-size:clamp(22px,2vw,30px);letter-spacing:-.01em}
+/* The atmosphere readouts sit directly on the render, and the render at full output is a
+   lit wall: bone at 93 % over it measured 2.6:1. They carry their own plate rather than
+   trusting the scrim, which fades out towards the right, which is where these sit. */
+.atmos__k,.atmos__lm{background:rgba(11,9,8,.72);padding:2px 7px;border-radius:3px}
+.atmos__k,.atmos__lm{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.14em;color:var(--fg-dim);text-align:right}
+.atmos__b{grid-column:2/-1;font-size:15.5px;line-height:1.55;color:var(--fg-dim);max-width:42ch}
 .atmos__row[aria-pressed="true"] .atmos__n{color:var(--emission)}
 .macrocap{
-  align-self:end;justify-self:end;max-width:34ch;margin:0 0 clamp(96px,15vh,180px);text-align:right;
-  font-family:'IBM Plex Mono';font-size:10.5px;line-height:1.7;letter-spacing:.04em;color:color-mix(in srgb,var(--fg) 74%,transparent);
+  align-self:end;justify-self:end;max-width:36ch;margin:0 0 clamp(96px,15vh,180px);text-align:right;
+  font-family:'IBM Plex Mono';font-size:13px;line-height:1.7;letter-spacing:.03em;color:color-mix(in srgb,var(--fg) 88%,transparent);
 }
-.macrocap span{display:block;color:var(--fg);letter-spacing:.18em;text-transform:uppercase;font-size:9.5px;margin-bottom:6px}
+.macrocap span{display:block;color:var(--fg);letter-spacing:.17em;text-transform:uppercase;font-size:12px;margin-bottom:6px}
 
 /* ── finishes ─────────────────────────────────────────────────────── */
 .sec--materials .copy{max-width:none}
 .finishes{list-style:none;margin:clamp(22px,2.6vw,34px) 0 0;padding:0;display:grid;gap:clamp(8px,1vw,12px)}
 .fin{
   width:100%;display:grid;grid-template-columns:38px 1fr auto;grid-template-areas:"chip n s" "chip b b";
-  gap:4px 16px;align-items:center;text-align:left;background:transparent;cursor:pointer;
-  border:1px solid var(--hairline);padding:clamp(12px,1.3vw,16px) clamp(14px,1.4vw,18px);
+  gap:4px 16px;align-items:center;text-align:left;background:transparent;cursor:pointer;min-height:56px;
+  border:1px solid var(--control-edge);padding:clamp(12px,1.3vw,16px) clamp(14px,1.4vw,18px);
   transition:border-color .4s var(--ease),background .4s var(--ease);
 }
 .fin:hover,.fin[aria-pressed="true"]{border-color:color-mix(in srgb,var(--fg) 70%,transparent);background:color-mix(in srgb,var(--fg) 6%,transparent)}
 .fin[aria-pressed="true"]{border-color:var(--fg);background:color-mix(in srgb,var(--fg) 9%,transparent)}
 .fin__chip{
-  grid-area:chip;width:30px;height:30px;border-radius:50%;position:relative;
+  grid-area:chip;width:32px;height:32px;border-radius:50%;position:relative;
   background:
     radial-gradient(circle at 34% 26%, rgba(255,255,255,.60), rgba(255,255,255,0) 46%),
     radial-gradient(circle at 72% 80%, rgba(0,0,0,.42), rgba(0,0,0,0) 62%),
     var(--chip);
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.25),0 2px 10px rgba(0,0,0,.28);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.30),0 2px 10px rgba(0,0,0,.28);
 }
-.fin__n{grid-area:n;font-family:'Instrument Serif';font-size:22px;line-height:1}
-.fin__s{grid-area:s;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-dim);text-align:right}
-.fin__b{grid-area:b;font-size:12.5px;line-height:1.5;color:var(--fg-dim)}
+.fin__n{grid-area:n;font-family:'Instrument Serif';font-size:25px;line-height:1}
+.fin__s{grid-area:s;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--fg-dim);text-align:right}
+.fin__b{grid-area:b;font-size:14.5px;line-height:1.5;color:var(--fg-dim)}
 .fin[aria-pressed="true"] .fin__chip::after{content:'';display:block;width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 2px var(--fg),0 0 0 3px transparent}
 
 /* ── specification ────────────────────────────────────────────────── */
 .sec--specs .copy{max-width:none;align-self:start}
-.drawing{margin:clamp(26px,3vw,40px) 0 0;width:min(100%,330px)}
+.drawing{margin:clamp(26px,3vw,40px) 0 0;width:min(100%,340px)}
 .drawing img{width:100%;height:auto;mix-blend-mode:multiply}
-.drawing figcaption{margin-top:14px;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.12em;line-height:1.6;color:var(--fg-dim)}
+.drawing figcaption{margin-top:14px;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.1em;line-height:1.65;color:var(--fg-dim)}
 .spec{width:100%;margin:clamp(26px,3vw,40px) 0 0;border-collapse:collapse}
 .spec tr{border-bottom:1px solid var(--hairline)}
 .spec th,.spec td{padding:clamp(9px,1vw,13px) 0;vertical-align:top;text-align:left;font-weight:400}
-.spec th{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-dim);width:12ch;white-space:nowrap}
-.spec td{font-size:14.5px}
-.honesty{margin:clamp(28px,3.4vw,44px) 0 0;max-width:56ch;font-size:14px;line-height:1.6;color:var(--fg-dim);border-left:1px solid var(--hairline);padding-left:18px}
+.spec th{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--fg-dim);width:15ch;white-space:nowrap}
+.spec td{font-size:16.5px}
+.honesty{margin:clamp(28px,3.4vw,44px) 0 0;max-width:58ch;font-size:16px;line-height:1.6;color:var(--fg-dim);border-left:1px solid var(--control-edge);padding-left:18px}
 .honesty b{font-weight:500;color:var(--fg)}
 
 /* ── reserve ──────────────────────────────────────────────────────── */
-.sec--reserve{min-height:92svh}
 .sec--reserve .copy{max-width:min(52vw,620px)}
-.card{margin:clamp(24px,3vw,36px) 0 0;padding:0;max-width:min(100%,430px);border-top:1px solid var(--hairline)}
-.card>div{display:grid;grid-template-columns:12ch 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
-.card dt{margin:0;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-dim)}
-.card dd{margin:0;font-size:14.5px}
-.actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:clamp(24px,3vw,38px)}
+.card{margin:clamp(24px,3vw,36px) 0 0;padding:0;max-width:min(100%,460px);border-top:1px solid var(--hairline)}
+.card>div{display:grid;grid-template-columns:13ch 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
+.card dt{margin:0;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--fg-dim)}
+.card dd{margin:0;font-size:16.5px}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:clamp(14px,1.6vw,24px);margin-top:clamp(24px,3vw,38px)}
 
 /* ── footer ───────────────────────────────────────────────────────── */
 .foot{position:relative;z-index:var(--z-copy);background:#0f0d0b;color:var(--bone);padding:clamp(44px,6vw,86px) var(--pad) clamp(120px,14vw,150px)}
 .foot__grid{max-width:var(--maxw);margin:0 auto;display:grid;gap:clamp(28px,4vw,54px);grid-template-columns:1fr}
 @media (min-width:860px){.foot__grid{grid-template-columns:1.1fr 1.5fr 1fr}}
 .foot__mark{margin:0 0 12px}
-.foot__h{margin:0 0 12px;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--stone)}
-.foot__note{margin:0 0 10px;font-size:13px;line-height:1.65;color:rgba(239,231,217,.62);max-width:46ch}
-.foot__note--dim{color:rgba(239,231,217,.38)}
+.foot__h{margin:0 0 12px;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--stone)}
+.foot__note{margin:0 0 10px;font-size:15px;line-height:1.65;color:rgba(239,231,217,.80);max-width:46ch}
+.foot__note--dim{color:rgba(239,231,217,.72)}
 .foot__motion{
-  background:transparent;border:1px solid rgba(239,231,217,.24);color:rgba(239,231,217,.72);
-  font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
-  padding:10px 14px;cursor:pointer;margin-top:8px;border-radius:2px;transition:border-color .3s,color .3s;
+  background:transparent;border:1px solid var(--edge);color:rgba(239,231,217,.82);
+  font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  padding:11px 15px;cursor:pointer;margin-top:10px;border-radius:2px;min-height:44px;transition:border-color .3s,color .3s;
 }
-.foot__motion:hover{border-color:rgba(239,231,217,.5);color:var(--bone)}
+.foot__motion:hover{border-color:rgba(239,231,217,.7);color:var(--bone)}
 
 /* ── configurator dock ────────────────────────────────────────────── */
+.dock .dock__label,.dock .dock__val{display:none}
 .dock{
   position:fixed;z-index:var(--z-dock);left:var(--pad);right:var(--pad);
   bottom:calc(14px + env(safe-area-inset-bottom,0px));
   display:flex;align-items:center;gap:clamp(10px,1.6vw,26px);flex-wrap:wrap;
-  padding:12px clamp(12px,1.4vw,18px);border:1px solid var(--hairline);
-  background:color-mix(in srgb,#12100e 90%,transparent);border-radius:3px;
+  padding:12px clamp(12px,1.4vw,18px);border:1px solid var(--edge);
+  background:color-mix(in srgb,#12100e 82%,transparent);
+  -webkit-backdrop-filter:blur(14px) saturate(1.1);backdrop-filter:blur(14px) saturate(1.1);
+  border-radius:3px;
 }
 @media (min-width:1100px){
-  .dock{left:auto;right:var(--pad);bottom:calc(26px + env(safe-area-inset-bottom,0px));flex-wrap:nowrap;gap:16px;padding:14px 18px}
+  .dock{left:auto;right:var(--pad);bottom:calc(26px + env(safe-area-inset-bottom,0px));flex-wrap:nowrap;gap:16px;padding:13px 16px}
+  /* between 1100 and 1360 the copy column still reaches under the dock, so the
+     controls take two rows instead of overlapping it */
+@media (min-width:1100px) and (max-width:1359px){
+  .dock{flex-wrap:wrap;max-width:min(44vw,420px);row-gap:10px;justify-content:flex-start}
+  .dock__group--cta{width:100%}
+}
+@media (min-width:1560px){
+  .dock__label,.dock__val{display:inline}
+  .dock{gap:18px;padding:14px 20px}
+}
 }
 .dock__group{display:flex;align-items:center;gap:10px;flex:none}
-.dock__label{display:none;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(239,231,217,.62)}
-@media (min-width:1660px){.dock__label{display:block}}
-.dock__group--dim{display:none}
-@media (min-width:1250px){.dock__group--dim{display:flex}}
-.dock__motion{padding:10px 13px;min-height:38px}
+.dock__label{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:rgba(239,231,217,.84)}
+.dock__val{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--bone);white-space:nowrap}
+.dock__motion{padding:0;width:44px;min-height:44px}
 .dock__motion .ico{fill:currentColor;display:block}
 .dock__motion[aria-pressed="false"] .ico--play{display:none}
 .dock__motion[aria-pressed="true"] .ico--pause{display:none}
-.dock__range{-webkit-appearance:none;appearance:none;width:104px;height:24px;background:transparent;cursor:ew-resize}
-.dock__range::-webkit-slider-runnable-track{height:1px;background:rgba(239,231,217,.28)}
-.dock__range::-moz-range-track{height:1px;background:rgba(239,231,217,.28)}
-.dock__range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;background:#efe7d9;margin-top:-5px;border:0}
-.dock__range::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:#efe7d9}
-.dock__readout{display:none;margin:0;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(239,231,217,.55)}
-@media (min-width:1560px){.dock__readout{display:block;margin-left:auto}}
-.swatches{display:flex;gap:7px}
+.dock__range{-webkit-appearance:none;appearance:none;width:104px;height:26px;background:transparent;cursor:ew-resize}
+.dock__range::-webkit-slider-runnable-track{height:1px;background:var(--edge)}
+.dock__range::-moz-range-track{height:1px;background:var(--edge)}
+.dock__range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;background:#efe7d9;margin-top:-6px;border:0}
+.dock__range::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:#efe7d9}
+/* ── the output control, in the atmosphere chapter ────────────────── */
+.out{display:flex;align-items:center;gap:14px;margin-top:clamp(26px,3vw,38px);flex-wrap:wrap}
+.out__l{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--fg-dim)}
+.out__range{-webkit-appearance:none;appearance:none;width:min(190px,44vw);height:26px;background:transparent;cursor:ew-resize}
+.out__v{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--bone);min-width:48px}
+.out__h{margin:10px 0 0;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.09em;color:var(--fg-dim)}
+.out__range::-webkit-slider-runnable-track{height:1px;background:var(--edge)}
+.out__range::-moz-range-track{height:1px;background:var(--edge)}
+.out__range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#efe7d9;margin-top:-8px;border:0}
+.out__range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#efe7d9}
+.dock{transition:opacity .5s var(--ease),transform .5s var(--ease)}
+/* the primary action is offered here, and again where it belongs — but never twice at
+   once: over the reservation chapter the dock stands down so the page has one CTA. */
+body.is-end .dock{opacity:0;transform:translateY(14px);pointer-events:none;visibility:hidden}
+/* visibility is not transitioned, so the stand-down takes effect on the same frame the
+   class lands: the reader is never shown two primary actions, however slow the
+   renderer is, and the dock leaves the accessibility tree as it leaves the screen. */
+
+.swatches{display:flex;gap:2px}
+/* the material sample is 30px; the control that carries it is 44px */
 .swatch{
-  width:24px;height:24px;border-radius:50%;border:1px solid rgba(239,231,217,.30);cursor:pointer;
-  padding:0;position:relative;transition:transform .3s var(--ease),border-color .3s;
+  width:44px;height:44px;border:0;padding:0;background:transparent;cursor:pointer;position:relative;border-radius:50%;
+  transition:transform .3s var(--ease);
+}
+.swatch::before{
+  content:'';position:absolute;left:7px;top:7px;width:30px;height:30px;border-radius:50%;
+  border:1px solid rgba(239,231,217,.42);
   /* reads as a material sample, not a flat colour chip */
   background:
     radial-gradient(circle at 34% 26%, rgba(255,255,255,.62), rgba(255,255,255,0) 46%),
     radial-gradient(circle at 72% 80%, rgba(0,0,0,.42), rgba(0,0,0,0) 62%),
     var(--sw);
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.30), inset 0 1px 2px rgba(255,255,255,.20);
+  transition:box-shadow .3s,transform .3s var(--ease);
 }
-.swatch:hover{transform:scale(1.12)}
-.swatch[aria-checked="true"]{border-color:#efe7d9}
-.swatch[aria-checked="true"]::after{content:'';position:absolute;inset:-4px;border:1px solid rgba(239,231,217,.55);border-radius:50%}
-.swatch--atmo[aria-checked="true"]{box-shadow:0 0 12px var(--sw)}
+.swatch:hover::before{transform:scale(1.1)}
+.swatch[aria-checked="true"]::before{border-color:#efe7d9;box-shadow:0 0 0 2px rgba(239,231,217,.9),inset 0 0 0 1px rgba(0,0,0,.30)}
+.swatch--atmo[aria-checked="true"]::before{box-shadow:0 0 0 2px rgba(239,231,217,.9),0 0 14px var(--sw)}
 
 /* ── modal ────────────────────────────────────────────────────────── */
 .modal{
-  border:1px solid rgba(239,231,217,.22);background:#14110f;color:var(--bone);
-  padding:0;max-width:min(560px,92vw);width:100%;border-radius:3px;
+  border:1px solid rgba(239,231,217,.30);background:#14110f;color:var(--bone);
+  padding:0;max-width:min(580px,92vw);width:100%;border-radius:3px;
 }
 .modal::backdrop{background:rgba(8,7,6,.8)}
 .modal__inner{padding:clamp(22px,3vw,38px)}
-.modal__tag{margin:0 0 18px;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--emission)}
-.modal__title{margin:0 0 22px;font-family:'Instrument Serif';font-weight:400;font-size:44px;line-height:1}
+.modal__tag{margin:0 0 18px;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--emission)}
+.modal__title{margin:0 0 22px;font-family:'Instrument Serif';font-weight:400;font-size:46px;line-height:1}
 .modal__cfg{display:grid;grid-template-columns:auto 1fr;gap:10px 20px;margin:0 0 20px;padding:18px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-.modal__cfg dt{font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(239,231,217,.6);align-self:center}
-.modal__cfg dd{margin:0;font-size:15px}
-.modal__honest{margin:0 0 18px;font-size:13px;line-height:1.6;color:rgba(239,231,217,.62)}
-.modal__ref{margin:0 0 22px;font-family:'IBM Plex Mono';font-size:11px;letter-spacing:.14em;color:rgba(239,231,217,.72)}
-.modal__ref b{color:var(--bone);letter-spacing:.2em}
+.modal__cfg dt{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:rgba(239,231,217,.78);align-self:center}
+.modal__cfg dd{margin:0;font-size:16px}
+.modal__honest{margin:0 0 18px;font-size:15px;line-height:1.6;color:rgba(239,231,217,.76)}
+.modal__ref{margin:0 0 22px;font-family:'IBM Plex Mono';font-size:12.5px;letter-spacing:.12em;color:rgba(239,231,217,.82)}
+.modal__ref b{color:var(--bone);letter-spacing:.18em}
 .modal__actions{display:flex;gap:12px;flex-wrap:wrap}
-.modal__copy{margin:16px 0 0;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.14em;color:var(--emission);min-height:1.2em}
+.modal__copy{margin:16px 0 0;font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.12em;color:var(--emission);min-height:1.2em}
 
-.skip{position:absolute;left:-9999px;top:0;z-index:99;background:var(--bone);color:var(--ink);padding:12px 18px;font-family:'IBM Plex Mono';font-size:11px}
+.skip{position:absolute;left:-9999px;top:0;z-index:99;background:var(--bone);color:var(--ink);padding:12px 18px;font-family:'IBM Plex Mono';font-size:13px}
 .skip:focus{left:12px;top:12px}
 
 /* ── narrow screens ───────────────────────────────────────────────────
-   The dock is fixed, so the last chapter and the footer have to reserve room
-   for it or the primary buttons sit underneath it. The object also sits behind
-   the copy at this width, so the copy carries its own scrim. */
+   The dock is fixed, so the last chapter and the footer have to reserve room for
+   it or the primary buttons sit underneath it.
+
+   Pass 2 ─ the object used to sit behind the copy under a hard dark panel, and the
+   lamp was cropped out of frame. Now every section frames the object in the upper
+   part of the viewport (see data-cam-m in index.html) and the copy sits under a
+   gradient, not a slab, so the thing the page is about stays visible. */
 .hint--touch{display:none}
 @media (max-width:1099px){
-  .sec--reserve{padding-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
-  .foot{padding-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  /* on a phone the object is turned by dragging it — the hint says so — and the
+     slider is gone, which is most of what was standing between the object and the
+     fold */
+  .turn{display:none}
+  .herofoot{flex-wrap:wrap;margin-top:clamp(18px,3vw,26px)}
+  .sec--reserve{padding-bottom:calc(184px + env(safe-area-inset-bottom,0px))}
+  .foot{padding-bottom:calc(184px + env(safe-area-inset-bottom,0px))}
 }
 @media (max-width:900px){
-  /* the object sits behind the copy at this width, so every copy block carries its own
-     scrim instead of relying on the horizontal one */
-  .sec .copy,
-  .sec:not(.sec--hero) .table,
-  .sec:not(.sec--hero) .atmos,
-  .sec:not(.sec--hero) .finishes{
-    background:color-mix(in srgb,#12100e 62%,transparent);
-    padding:14px 16px;margin-left:-16px;margin-right:-16px;border-radius:3px;
+  .sec__inner{padding-left:var(--pad);padding-right:var(--pad)}
+  .turn,.herofoot{padding-left:var(--pad);padding-right:var(--pad)}
+  /* one gradient per section, behind everything the section says */
+  .sec:not(.sec--hero) .sec__inner::before,
+  .sec--hero::before{
+    content:'';position:absolute;pointer-events:none;z-index:-1;
+    left:calc(var(--pad) * -0.5);right:calc(var(--pad) * -0.5);
   }
-  .sec--hero .copy{background:color-mix(in srgb,#12100e 48%,transparent)}
-  body.is-tone-light .sec .copy,
-  body.is-tone-light .sec:not(.sec--hero) .table,
-  body.is-tone-light .sec:not(.sec--hero) .atmos,
-  body.is-tone-light .sec:not(.sec--hero) .finishes{
-    background:color-mix(in srgb,#e8e1d4 66%,transparent);
+  .sec:not(.sec--hero) .sec__inner::before{
+    top:-6vh;bottom:-8vh;
+    background:linear-gradient(180deg,
+      rgba(13,10,8,0) 0%, rgba(13,10,8,.30) 20%, rgba(13,10,8,.78) 44%,
+      rgba(13,10,8,.92) 66%, rgba(13,10,8,.95) 100%);
   }
-  .turn__hint{font-size:12px;color:var(--fg-dim)}
+  .sec--hero::before{
+    bottom:calc(-1 * env(safe-area-inset-bottom,0px));height:70%;
+    background:linear-gradient(180deg,
+      rgba(13,10,8,0) 0%, rgba(13,10,8,.34) 9%, rgba(13,10,8,.72) 24%,
+      rgba(13,10,8,.90) 46%, rgba(13,10,8,.95) 70%, rgba(13,10,8,.96) 100%);
+  }
+  body.is-tone-light .sec:not(.sec--hero) .sec__inner::before{
+    background:linear-gradient(180deg,
+      rgba(233,226,213,0) 0%, rgba(233,226,213,.35) 20%, rgba(233,226,213,.82) 44%,
+      rgba(233,226,213,.94) 66%, rgba(233,226,213,.96) 100%);
+  }
+  /* the hero stacks: the object keeps the top of the frame, the copy sits under it */
+  .sec--hero{justify-content:flex-end;padding-top:0;padding-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  .sec--hero .copy,.sec--hero .turn{max-width:none}
+  .sec--hero .copy{max-width:none}
+  .sec--hero .display{font-size:clamp(36px,10.4vw,54px)}
+  .sec--hero .lede{font-size:16px;max-width:none}
+  .sec:not(.sec--hero){padding:9svh 0 12svh}
   .hint--mouse{display:none}
   .hint--touch{display:inline}
+  /* the dock, reduced: the finish the body is, the one action, and the pause.
+     The atmosphere is chosen in its own chapter, where the four options are named. */
+  .dock{gap:8px 12px;padding:9px 11px;bottom:calc(9px + env(safe-area-inset-bottom,0px))}
+  .dock__group--atmo{display:none}
+  /* visible, not just an accessible name: the swatches on a phone carry the finish they
+     are set to, in words, because four small circles are not a label */
+  .dock .dock__label,.dock .dock__val{display:inline;font-size:11.5px;letter-spacing:.12em}
+  .dock__val{margin-left:auto}
+  .dock__group--cta{margin-left:auto}
+  .dock__group--fin{width:100%}
 }
 @media (hover:none){.hint--mouse{display:none}.hint--touch{display:inline}}
 
 /* ── reduced motion: keep the page alive, remove travel ───────────── */
 @media (prefers-reduced-motion: reduce){
   html:focus-within{scroll-behavior:auto}
-  .ln>span,.ln>em{transform:none}
-  .rv{transform:none}
-  .ln>span,.ln>em,.rv{transition-duration:.35s}
+  /* no masked lines moving: instead the reveal is a plain short fade, so the
+     content still acknowledges arriving without anything travelling across it */
+  .ln>span,.ln>em{transform:none;transition:opacity .5s var(--ease)}
+  .rv{transform:none;transition:opacity .5s var(--ease)}
   .readout__dot{animation:none;opacity:.85}
-  .swatch:hover{transform:none}
+  .swatch:hover::before{transform:none}
   .atmos__row:hover{padding-left:4px}
+  .dock{transition:none}
 }

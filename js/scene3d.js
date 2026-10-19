@@ -1,10 +1,20 @@
 /* VESPER — realtime stage.
-   One object, one room, one light seam. Everything procedural, no external assets. */
+   One object, one room, one light seam. Everything procedural, no external assets.
+
+   Pass 2 ─ the channel is geometry, not a stripe. The shell is a lathe whose rings
+   carry their angular samples clustered around wherever the helical channel is at
+   that height, so the 9 mm slot is cut into the mesh with a real floor, two real
+   lips and a real 0.6 mm edge break — and costs a fixed number of vertices per ring
+   instead of a globally finer mesh. The emission (the opal strip at the bottom of
+   the slot) and the light the slot throws on the floor and the wall are still
+   shaded, because the diffuser is a source, not a lit surface. */
 
 import * as THREE from '../vendor/three.module.js';
 import { FINISHES, ATMOSPHERES } from './data.js';
 
 export { FINISHES, ATMOSPHERES };
+
+const TAU = Math.PI * 2;
 
 /* ---------- procedural textures ---------- */
 
@@ -80,7 +90,7 @@ function blastMap() {
   valueNoise(g, S, S, 380, 0.16, 'overlay');
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(9, 5);
+  t.repeat.set(13, 13);
   return t;
 }
 
@@ -117,13 +127,17 @@ function envTexture() {
 }
 
 /* A studio built from light, then baked to a PMREM: metals need structure in their
-   reflections, not a smooth gradient, or they read as glazed ceramic. */
+   reflections, not a smooth gradient, or they read as glazed ceramic.
+   Pass 2 ─ every panel is neutral. The old rig had a bright amber strip at slot
+   height on the left, and an anodised-charcoal body mirrored it until it read as
+   bronze. Cast aluminium is a grey metal: it may take the colour of the light it
+   is in, but it must not bring its own. */
 function studioEnvironment(renderer) {
   const pm = new THREE.PMREMGenerator(renderer);
   const s = new THREE.Scene();
   const room = new THREE.Mesh(
     new THREE.BoxGeometry(12, 8, 12),
-    new THREE.MeshBasicMaterial({ color: 0x14161a, side: THREE.BackSide })
+    new THREE.MeshBasicMaterial({ color: 0x15171a, side: THREE.BackSide })
   );
   s.add(room);
   const panel = (w, h, color, pos, rot) => {
@@ -133,14 +147,20 @@ function studioEnvironment(renderer) {
     s.add(m);
     return m;
   };
-  // key softbox overhead-front (the strongest single shape the metal mirrors)
-  panel(6, 4, new THREE.Color(5.2, 5.2, 5.0), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]);
-  // narrow bright strip on the right, cooler
-  panel(1.1, 3.4, new THREE.Color(1.9, 2.1, 2.4), [3.4, 1.5, 1.4], [0, -Math.PI / 2, 0]);
-  // warm strip on the left at slot height
-  panel(0.8, 2.6, new THREE.Color(3.4, 1.9, 0.85), [-3.4, 1.4, 0.9], [0, Math.PI / 2, 0]);
+  // key softbox overhead-front: neutral, and the single strongest shape the metal mirrors
+  panel(6, 4, new THREE.Color(3.6, 3.62, 3.66), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]);
+  // narrow bright strip on the right, cooler — the long vertical specular
+  panel(0.9, 3.4, new THREE.Color(1.55, 1.68, 1.86), [3.4, 1.5, 1.4], [0, -Math.PI / 2, 0]);
+  // matching strip on the left, neutral and weaker, so the body has two edges
+  panel(0.7, 2.6, new THREE.Color(0.62, 0.63, 0.65), [-3.4, 1.4, 0.9], [0, Math.PI / 2, 0]);
+  // a broad soft panel overhead — the softbox. A narrow strip reflects into one
+  // thin specular; a *large* source is what a matte metal actually returns, and it
+  // is the difference between a grey column and a black one.
+  panel(4.6, 4.6, new THREE.Color(1.42, 1.44, 1.48), [0.4, 5.0, 0.7], [-Math.PI / 2, 0, 0]);
+  // a dim, wide back wall so the metal has structure behind it instead of a void
+  panel(9, 5, new THREE.Color(0.30, 0.305, 0.315), [0, 1.4, -5.8], [0, 0, 0]);
   // dark floor bounce
-  panel(12, 12, new THREE.Color(0.06, 0.055, 0.05), [0, -4, 0], [-Math.PI / 2, 0, 0]);
+  panel(12, 12, new THREE.Color(0.075, 0.075, 0.078), [0, -4, 0], [-Math.PI / 2, 0, 0]);
   const rt = pm.fromScene(s, 0.02, 0.1, 60);
   pm.dispose();
   s.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
@@ -170,174 +190,270 @@ export const OUTER = [
   [0.3040, 0.0000],
 ];
 
-function bodyProfile() {
-  const inset = 0.0072;
-  const inner = OUTER.slice().reverse().map(([y, r]) => [y - inset, Math.max(0, r - inset)]);
-  return OUTER.concat(inner).concat([[OUTER[0][0], OUTER[0][1]]]);
+const WALL_INSET = 0.0072;
+
+/** Radius of the outer profile at a height, interpolated exactly as the lathe did. */
+export function outerRadius(y) {
+  for (let i = 0; i < OUTER.length - 1; i++) {
+    const [ya, ra] = OUTER[i], [yb, rb] = OUTER[i + 1];
+    if (y >= ya && y <= yb) return ra + (rb - ra) * ((y - ya) / Math.max(1e-9, yb - ya));
+  }
+  return y < OUTER[0][0] ? OUTER[0][1] : OUTER[OUTER.length - 1][1];
 }
 
-const BODY_TOP = OUTER[OUTER.length - 1][0];
+/* ---------- the channel ---------- */
 
-/* ---------- seam shader: two wraps, cut straight out of the shell ---------- */
+export const CHANNEL = {
+  phase: -1.15,       // where the single start sits at half height in the front view
+  turns: 1.16,
+  yMin: 0.038,
+  yMax: 0.286,
+  aperture: 0.0090,   // 9 mm across the lips
+  depth: 0.0050,      // 5 mm down to the opal diffuser, inside the 7.2 mm wall
+  floorEnd: 0.72,     // of the half-aperture: flat machined floor out to here ..
+  wallEnd: 0.92,      // .. then the wall rises back to the outer radius
+  break: 0.0006,      // 0.6 mm edge break on each lip
+  opalEnd: 0.28,      // of the half-aperture: the diffuser is a line, not a floor
+};
+const CH_HALF = CHANNEL.aperture / 2;
+const CH_OUT = 9.0;   // sentinel: this vertex is nowhere near the channel
 
-const SEAM = {
-  uPhase: { value: -1.15 },
-  uTurns: { value: 1.16 },
-  uWidth: { value: 0.050 },
-  uYMin: { value: 0.038 },
-  uYMax: { value: 0.286 },
-  uEdge: { value: 0.026 },
-  uPhase2: { value: 1.99 },
-  uWidth2: { value: 0.034 },
-  uYMin2: { value: 0.150 },
-  uYMax2: { value: 0.300 },
-  uGlowColor: { value: new THREE.Color(0xffa955) },
+/** Signed distance across the channel in units of the half-aperture: 0 centre, ±1 lip. */
+function channelT(y) {
+  return Math.min(1, Math.max(0, (y - CHANNEL.yMin) / (CHANNEL.yMax - CHANNEL.yMin)));
+}
+function channelCentreAngle(y) {
+  return CHANNEL.phase + channelT(y) * CHANNEL.turns * TAU;
+}
+/** Half-aperture at a height. The slot pinches over the last few millimetres at each
+    end, the way a cutter runs out, instead of stopping on a hard annular edge. */
+function channelHalf(y) {
+  const tt = channelT(y);
+  const run = Math.min(1, Math.min(tt, 1 - tt) / 0.014);
+  return CH_HALF * (0.58 + 0.42 * run);
+}
+/** how far the surface is cut below the outer radius at a given offset */
+function slotCut(f) {
+  const a = Math.abs(f);
+  if (a <= CHANNEL.floorEnd) return CHANNEL.depth;
+  if (a <= CHANNEL.wallEnd) {
+    const u = (a - CHANNEL.floorEnd) / (CHANNEL.wallEnd - CHANNEL.floorEnd);
+    return CHANNEL.depth - (CHANNEL.depth - CHANNEL.break) * (u * u * (3 - 2 * u));
+  }
+  if (a < 1) {
+    const u = (a - CHANNEL.wallEnd) / (1 - CHANNEL.wallEnd);
+    return CHANNEL.break * (1 - (u * u * (3 - 2 * u)));
+  }
+  return 0;
+}
+
+/* ---------- the shell ----------
+   One ring per height, each ring carrying the same angular samples — but clustered,
+   so that wherever the channel is at that height it gets 40 samples across 9 mm and
+   the remaining 200 spread over the rest of the circumference. The dense span is the
+   same in every ring, so the parametrisation follows the helix and the mesh stays a
+   regular grid. */
+
+const RING_DENSE = 40;
+const RING_UNIFORM = 200;
+const DENSE_HALF = 0.095;    // radians either side of the channel centre
+
+function ringColumns() {
+  const u = [];
+  for (let k = 0; k < RING_DENSE; k++) u.push(-DENSE_HALF + (2 * DENSE_HALF * k) / (RING_DENSE - 1));
+  for (let k = 0; k < RING_UNIFORM; k++) u.push(DENSE_HALF + ((TAU - 2 * DENSE_HALF) * k) / RING_UNIFORM);
+  u.push(u[0] + TAU);                       // close the ring
+  return u;
+}
+
+function ringStack() {
+  const rings = [];
+  const span = (ya, ra, yb, rb, n, outer) => {
+    for (let k = 0; k < n; k++) {
+      const u = k / n;
+      rings.push({ y: ya + (yb - ya) * u, r: ra + (rb - ra) * u, outer });
+    }
+  };
+  for (let i = 0; i < OUTER.length - 1; i++) span(OUTER[i][0], OUTER[i][1], OUTER[i + 1][0], OUTER[i + 1][1], 3, true);
+  rings.push({ y: OUTER[OUTER.length - 1][0], r: OUTER[OUTER.length - 1][1], outer: true });
+
+  const inner = OUTER.slice().reverse().map(([y, r]) => [y - WALL_INSET, Math.max(0, r - WALL_INSET)]);
+  for (let i = 0; i < inner.length - 1; i++) span(inner[i][0], inner[i][1], inner[i + 1][0], inner[i + 1][1], 2, false);
+  rings.push({ y: inner[inner.length - 1][0], r: inner[inner.length - 1][1], outer: false });
+
+  rings.push({ y: rings[0].y, r: rings[0].r, outer: true });   // close the bottom annulus
+  return rings;
+}
+
+function shellGeometry() {
+  const U = ringColumns();
+  const rings = ringStack();
+  const cols = U.length, rows = rings.length;
+  const pos = new Float32Array(rows * cols * 3);
+  const uv = new Float32Array(rows * cols * 2);
+  const groove = new Float32Array(rows * cols);
+  const idx = new Uint32Array((rows - 1) * (cols - 1) * 6);
+  let t3 = 0;
+
+  for (let i = 0; i < rows; i++) {
+    const { y, r, outer } = rings[i];
+    const c = channelCentreAngle(y);
+    const inBand = outer && y >= CHANNEL.yMin && y <= CHANNEL.yMax;
+    for (let j = 0; j < cols; j++) {
+      const a = c + U[j];
+      const o = i * cols + j;
+      let f = CH_OUT;
+      let rr = r;
+      if (inBand) {
+        f = (U[j] * r) / channelHalf(y);
+        rr = r - slotCut(f);
+      }
+      pos[o * 3] = rr * Math.cos(a);
+      pos[o * 3 + 1] = y;
+      pos[o * 3 + 2] = rr * Math.sin(a);
+      uv[o * 2] = j / (cols - 1);
+      uv[o * 2 + 1] = i / (rows - 1);
+      groove[o] = f;
+    }
+  }
+  for (let i = 0; i < rows - 1; i++) {
+    for (let j = 0; j < cols - 1; j++) {
+      const a = i * cols + j, b = a + 1, c2 = a + cols, d = c2 + 1;
+      idx[t3++] = a; idx[t3++] = c2; idx[t3++] = b;
+      idx[t3++] = b; idx[t3++] = c2; idx[t3++] = d;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('aGroove', new THREE.BufferAttribute(groove, 1));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeVertexNormals();
+  return g;
+}
+
+/* ---------- what the channel emits ----------
+   The diffuser is a source, so it is emission — but it is emission *inside a slot*,
+   masked by the offset across the groove that the geometry already carries. No
+   aspect of the aperture's shape is decided here. */
+
+const CH = {
+  uGlowColor: { value: new THREE.Color(0xffb464) },
   uGlow: { value: 1 },
+  uOpalEnd: { value: CHANNEL.opalEnd },
 };
 
-/* where the slot points at half height, in object space: drives the raking light */
-export function slotAngle(phase) {
-  return phase + 0.5 * SEAM.uTurns.value * Math.PI * 2;
-}
-export const SLOT_Y = 0.5 * (0.038 + 0.286);
-export const SLOT_RADIUS = 0.104;
-
-/* One helical start only: a single continuous channel, so nothing can cross itself
-   in projection. The groove is shaded, not cut away: a lit floor inside the channel,
-   walls whose normals tilt, and a soft machined shoulder. */
-const SEAM_GLSL = /* glsl */`
-  float vAngle = atan(vObjPos.z, vObjPos.x);
-  float vT = clamp((vObjPos.y - uYMin) / (uYMax - uYMin), 0.0, 1.0);
-  float vC = uPhase + vT * uTurns * 6.2831853;
-  float vDa = mod(vAngle - vC + 3.14159265, 6.2831853) - 3.14159265;
-  float vWa = uWidth * (0.70 + 0.50 * (1.0 - vT));
-  float vSeam = abs(vDa) - vWa;
-  float vSide = vDa < 0.0 ? -1.0 : 1.0;
-  float vSlot = 1.0 - smoothstep(0.0, 0.011, vSeam);
-  float vWall = exp(-pow(vSeam / 0.016, 2.0)) * vSide;
-  float vShoulder = 1.0 - smoothstep(0.006, 0.050, abs(vSeam));
-  float vBleed = exp(-pow(max(vSeam, 0.0) / 0.105, 2.0)) * (1.0 - vShoulder * 0.4);
-  vec3 vTangent = normalize(vec3(-vObjPos.z, 0.0, vObjPos.x));
-`;
-
-function seamify(material) {
+function channelify(material) {
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, SEAM);
-    shader.vertexShader = 'varying vec3 vObjPos;\n' + shader.vertexShader.replace(
+    shader.uniforms.uGlowColor = CH.uGlowColor;
+    shader.uniforms.uGlow = CH.uGlow;
+    shader.uniforms.uOpalEnd = CH.uOpalEnd;
+    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vObjPos = position;'
+      '#include <begin_vertex>\n  vGroove = aGroove;'
     );
     shader.fragmentShader = [
-      'varying vec3 vObjPos;',
-      'uniform float uPhase; uniform float uTurns; uniform float uWidth; uniform float uYMin; uniform float uYMax; uniform float uEdge;',
-      'uniform float uPhase2; uniform float uWidth2; uniform float uYMin2; uniform float uYMax2;',
-      'uniform vec3 uGlowColor; uniform float uGlow;',
+      'varying float vGroove;',
+      'uniform vec3 uGlowColor; uniform float uGlow; uniform float uOpalEnd;',
       shader.fragmentShader
         .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
-          ${SEAM_GLSL}
-          diffuseColor.rgb *= mix(1.0, 0.52, vShoulder);
-          diffuseColor.rgb *= mix(1.0, 0.70, vSlot);
+          float vAbs = abs(vGroove);
+          // Inside the cut the surface is raw machined metal in its own shadow: the
+          // outer light cannot reach it. Darkening it is honest, but the *shape* of the
+          // darkening is what draws the recess — flat across the floor, ramping up the
+          // walls — so this is a profile, not a wash.
+          float vIn = smoothstep(0.06, 0.26, vAbs) * (1.0 - smoothstep(0.86, 1.02, vAbs));
+          diffuseColor.rgb *= mix(1.0, 0.16, vIn);
+          // the lip throws its own shadow onto the body just outside the cut. Without
+          // it the shoulders of the channel sit at exactly the same value as the rest
+          // of the column and the whole thing flattens into a stripe.
+          float vSpill = exp(-pow((vAbs - 1.34) / 0.30, 2.0));
+          diffuseColor.rgb *= (1.0 - 0.38 * vSpill);
         `)
         .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
-          roughnessFactor = mix(roughnessFactor, 0.24, vShoulder * 0.8);
+          // machined, not polished: a mirror inside the slot just returns the room again
+          roughnessFactor = mix(roughnessFactor, 0.52, vIn);
         `)
-        .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>
-          normal = normalize(normal + vTangent * vWall * 0.34);
+        .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
+          // and it is occluded metal, so it stops mirroring the warm room back out
+          metalnessFactor = mix(metalnessFactor, 0.30, vIn);
         `)
         .replace('#include <emissivemap_fragment>', /* glsl */`#include <emissivemap_fragment>
-          // light inside the channel, plus the warm bleed it puts on the metal either side:
-          // this is what makes it read as a source rather than a painted stripe
-          totalEmissiveRadiance += uGlowColor * uGlow * pow(vSlot, 1.35);
-          totalEmissiveRadiance += uGlowColor * uGlow * vBleed * 0.45;
-          totalEmissiveRadiance *= mix(1.0, 0.30, vShoulder);
+          // the opal diffuser, a line at the bottom of the slot rather than a lit floor:
+          // 9 mm of glowing floor reads as a stripe, 1.5 mm of glowing line reads as
+          // light inside a gap
+          float vOpal = 1.0 - smoothstep(uOpalEnd - 0.13, uOpalEnd + 0.07, vAbs);
+          totalEmissiveRadiance += uGlowColor * uGlow * pow(vOpal, 1.0);
+          // the 0.6 mm chamfer on each lip, and nothing else: a hairline, not a wash
+          float vLip = exp(-pow((vAbs - 1.02) / 0.085, 2.0));
+          totalEmissiveRadiance += uGlowColor * uGlow * 0.16 * vLip;
         `),
     ].join('\n');
   };
-  material.customProgramCacheKey = () => 'vesper-seam-v3';
+  material.customProgramCacheKey = () => 'vesper-channel-v1';
   return material;
 }
 
-/* ---------- spill shaders ---------- */
+/* ---------- the light the channel throws ----------
+   Not a pool centred under the object: a line source. The real world position and
+   outward direction of the slot are uploaded for a handful of samples along the
+   helix, and the floor plane and the wall integrate those emitters per pixel. The
+   pattern on the floor is therefore obliged to be a helix, it turns with the seam
+   because the seam turns with the object, and it goes dark directly beneath the
+   base because that is where nothing can see the slot. */
+
+const SPILL_SAMPLES = 8;      // one sample per ~52° of the helix: enough to read as a band, cheap enough for a phone
 
 const spillVert = /* glsl */`
-  varying vec2 vUv;
+  varying vec3 vWorld;
   void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorld = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
   }
 `;
 
-const wallSpillFrag = /* glsl */`
+const spillFrag = /* glsl */`
+#define K ${SPILL_SAMPLES}
 uniform vec3 uColor;
 uniform float uPower;
-uniform float uSway;
-uniform float uAspect;
-uniform float uScale;
+uniform vec3 uNormal;          // the surface receiving the light
+uniform vec3 uA[K];            // the slot as K segments of the helix, world space
+uniform vec3 uB[K];            // (segments, not points: eight points make a halo on the
+uniform vec3 uNorm[K];         //  wall, eight segments make a band that follows it)
+uniform float uGain[K];
+uniform float uCut2;           // squared radius past which nothing can be lit
 uniform sampler2D uGrain;
-varying vec2 vUv;
+varying vec3 vWorld;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
 void main() {
-  // the plane is 3.4 x 2.2 anchored at world y = 1.02, so the floor line sits at v = 0.036
-  float x = (vUv.x - 0.5) * 3.4;
-  float y = vUv.y;
+  // the light is local: everything past the cut is exact, and free
+  if (dot(vWorld.xz, vWorld.xz) > uCut2) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
-  // one patch, centred behind the object: whatever it does, it does because the
-  // object is standing there. It only leans a little the way the slot faces.
-  float lean = uSway * 0.06;
-  float cx = lean * (0.35 + 0.65 * y);
-  float halfw = 0.08 + 0.28 * pow(max(y - 0.03, 0.0), 1.05);
-  float spread = smoothstep(halfw, halfw * 0.04, abs(x - cx));
+  float energy = 0.0;
+  for (int k = 0; k < K; k++) {
+    // closest point on this piece of the emitter
+    vec3 ab = uB[k] - uA[k];
+    float h = clamp(dot(vWorld - uA[k], ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    vec3 d = vWorld - (uA[k] + ab * h);
+    float d2 = max(dot(d, d), 1e-6);
+    vec3 dn = d * inversesqrt(d2);
+    float cosE = dot(dn, uNorm[k]);        // does the slot face the point at all
+    float cosS = -dot(dn, uNormal);        // and does the point face the slot
+    float r = sqrt(d2) + 0.024;            // a frosted line, but a narrow one: a wide
+                                            // blur radius turns any line source into a
+                                            // smooth pool and throws the helix away
+    // a *line* source falls off as 1/r, not 1/r²: that is the difference between a band
+    // of light on the wall and a saturated blob, and it is why uPower stays small
+    energy += smoothstep(0.05, 0.60, cosE) * max(cosS, 0.0) * uGain[k] / r;
+  }
 
-  // the helix shows up as a narrow bright diagonal — the slit's own projection —
-  // inside a wider, much weaker wash, plus a compact halo that hugs the object
-  float s = 0.20 * sin((y - 0.06) * 4.6 + uSway * 0.8);
-  float coreW = 0.045 + 0.03 * y;
-  float core = smoothstep(coreW, 0.0, abs(x - cx - s));
-  float hug = 1.0 / (1.0 + pow(abs(x - cx) / 0.26, 2.2));
-
-  // the patch lives at the height of the channel, so it reads as light leaving the
-  // object rather than as a wash painted on the whole wall
-  float lift = smoothstep(0.02, 0.06, y) * (1.0 - smoothstep(0.10, 0.22, y));
-
-  float grain = texture2D(uGrain, vUv * vec2(uAspect * 1.7, 2.0)).r;
-  float reveal = mix(0.93, 1.07, grain);
-
-  // the structured projection of the channel dominates; the diffuse terms are only
-  // there to keep the patch from looking cut out
-  float energy = (core * 1.30 + hug * 0.16 + spread * 0.08) * lift * reveal * uPower;
-  vec3 col = uColor * energy;
-  col += (hash(vUv * 2048.0) - 0.5) * (1.6 / 255.0) * step(0.002, energy);
-  gl_FragColor = vec4(max(col, 0.0), 1.0);
-}
-`;
-
-const floorPoolFrag = /* glsl */`
-uniform vec3 uColor;
-uniform float uPower;
-uniform float uSway;
-uniform float uAspect;
-uniform float uScale;
-uniform sampler2D uGrain;
-varying vec2 vUv;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-
-void main() {
-  // PlaneGeometry(3,3) rotated -90° about x and placed at z = +0.30: world z = 1.8 - 3*uv.y
-  // and world x = 3*(uv.x - 0.5). The object's base is therefore at uv = (0.5, 0.60),
-  // and p.y > 0 points towards the viewer.
-  vec2 p = vec2((vUv.x - 0.5) * 3.0, (0.60 - vUv.y) * 3.0);
-  float r = length(p * vec2(1.0, 0.74));
-  float halo = smoothstep(0.20, 0.012, r);          // tight, hugs the plinth
-  float pool = smoothstep(0.52, 0.03, r);           // fall-off around it, kept near the object
-  float fy = max(p.y, 0.0);
-  float sx = abs(p.x) / (0.20 + 0.42 * fy);
-  float streak = exp(-sx * sx) * smoothstep(0.02, 0.22, fy) * (1.0 - smoothstep(0.45, 1.25, fy));
-  float grain = texture2D(uGrain, vUv * vec2(uAspect * 2.4, 2.4)).r;
-  float energy = (halo * 2.30 + pool * 0.30 + streak * 0.20) * mix(0.92, 1.08, grain) * uPower;
-  vec3 col = uColor * energy;
-  col += (hash(vUv * 2048.0) - 0.5) * (1.6 / 255.0);
+  float grain = texture2D(uGrain, vWorld.xz * 1.6 + vWorld.y * 0.5).r;
+  energy *= mix(0.90, 1.07, grain);
+  vec3 col = uColor * energy * uPower;
+  col += (hash(gl_FragCoord.xy) - 0.5) * (1.5 / 255.0);   // no banding in the falloff
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }
 `;
@@ -353,8 +469,10 @@ export function createStage(canvasEl, opts = {}) {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.06;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
+  // PCFSoftShadowMap was removed in r186: setting it silently falls back to PCF and
+  // logs a warning. Ask for PCF and buy the softness back with resolution instead.
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   /* Compile the scene's programs without freezing the page. On a software rasteriser
@@ -413,49 +531,82 @@ export function createStage(canvasEl, opts = {}) {
   floor.receiveShadow = true;
   scene.add(floor);
 
-  /* contact grounding so the object does not float */
-  const contactTex = radialTexture(1, 0.62);
-  const contact = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.46, 0.46),
-    new THREE.MeshBasicMaterial({
-      map: contactTex, color: 0x000000, transparent: true, opacity: 0.62,
-      depthWrite: false, blending: THREE.NormalBlending,
-    })
-  );
-  contact.rotation.x = -Math.PI / 2;
-  contact.position.set(0.012, 0.0016, 0.004);
-  scene.add(contact);
-
-  /* spill planes */
+  /* spill planes: sized to what the camera can actually see, so the per-pixel line
+     integral is spent on the frame and not on the room */
   const grainTex = plaster.bumpMap;
+  const spillArrays = () => {
+    const a = [], b = [], norm = [], gain = [];
+    for (let k = 0; k < SPILL_SAMPLES; k++) {
+      a.push(new THREE.Vector3());
+      b.push(new THREE.Vector3());
+      norm.push(new THREE.Vector3(1, 0, 0));
+      gain.push(0.55 + 0.45 * ((k + 0.5) / SPILL_SAMPLES));
+    }
+    return { a, b, norm, gain };
+  };
+
+  const wallA = spillArrays();
   const wallSpillMat = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(0xffb464) },
-      uPower: { value: 1 }, uSway: { value: 0 },
-      uAspect: { value: 1.55 }, uScale: { value: 1 },
+      uPower: { value: 1 },
+      uNormal: { value: new THREE.Vector3(0, 0, 1) },
+      uA: { value: wallA.a }, uB: { value: wallA.b }, uNorm: { value: wallA.norm }, uGain: { value: wallA.gain },
+      uCut2: { value: 1.35 * 1.35 },
       uGrain: { value: grainTex },
     },
-    vertexShader: spillVert, fragmentShader: wallSpillFrag,
+    vertexShader: spillVert, fragmentShader: spillFrag,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  const wallSpill = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.2), wallSpillMat);
-  wallSpill.position.set(0, 1.02, -0.712);
+  const wallSpill = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.4), wallSpillMat);
+  wallSpill.position.set(0, 0.55, -0.710);
   scene.add(wallSpill);
 
+  const floorA = spillArrays();
   const floorPoolMat = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(0xffb464) },
-      uPower: { value: 1 }, uSway: { value: 0 },
-      uAspect: { value: 1 }, uScale: { value: 1 },
+      uPower: { value: 1 },
+      uNormal: { value: new THREE.Vector3(0, 1, 0) },
+      uA: { value: floorA.a }, uB: { value: floorA.b }, uNorm: { value: floorA.norm }, uGain: { value: floorA.gain },
+      uCut2: { value: 1.25 * 1.25 },
       uGrain: { value: grainTex },
     },
-    vertexShader: spillVert, fragmentShader: floorPoolFrag,
+    vertexShader: spillVert, fragmentShader: spillFrag,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  const floorPool = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 3.0), floorPoolMat);
+  const floorPool = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), floorPoolMat);
   floorPool.rotation.x = -Math.PI / 2;
-  floorPool.position.set(0, 0.0032, 0.30);
+  floorPool.position.set(0, 0.0030, 0.36);
+  floorPool.renderOrder = 0;
   scene.add(floorPool);
+
+  /* contact: the object is standing on a floor, so it has to sit on one. A tight
+     core plus a wider soft ellipse, both drawn over the spill so the light that the
+     slot throws at the base is occluded by the thing that is standing there. */
+  const contactCore = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.30, 0.30),
+    new THREE.MeshBasicMaterial({
+      map: radialTexture(1, 0.34), color: 0x000000, transparent: true, opacity: 0.66,
+      depthWrite: false, blending: THREE.NormalBlending,
+    })
+  );
+  contactCore.rotation.x = -Math.PI / 2;
+  contactCore.position.set(0, 0.0040, -0.004);
+  contactCore.renderOrder = 2;
+  scene.add(contactCore);
+
+  const contactWide = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.86, 0.60),
+    new THREE.MeshBasicMaterial({
+      map: radialTexture(0.60, 0.30), color: 0x000000, transparent: true, opacity: 0.30,
+      depthWrite: false, blending: THREE.NormalBlending,
+    })
+  );
+  contactWide.rotation.x = -Math.PI / 2;
+  contactWide.position.set(0.045, 0.0036, 0.028);
+  contactWide.renderOrder = 1;
+  scene.add(contactWide);
 
   /* lights */
   const hemi = new THREE.HemisphereLight(0xb9c3cc, 0x2a231d, 0.55);
@@ -464,39 +615,39 @@ export function createStage(canvasEl, opts = {}) {
   const key = new THREE.DirectionalLight(0xf2f4f6, 1.25);
   key.position.set(-1.25, 1.95, 1.15);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
-  key.shadow.camera.left = -1.3;
-  key.shadow.camera.right = 1.3;
-  key.shadow.camera.top = 2.0;
-  key.shadow.camera.bottom = -0.4;
-  key.shadow.camera.near = 0.2;
-  key.shadow.camera.far = 6;
-  key.shadow.radius = 5;
-  key.shadow.bias = -0.0005;
-  key.shadow.normalBias = 0.014;
+  key.shadow.mapSize.set(4096, 4096);
+  key.shadow.camera.left = -0.55;
+  key.shadow.camera.right = 0.55;
+  key.shadow.camera.top = 0.60;
+  key.shadow.camera.bottom = -0.28;
+  key.shadow.camera.near = 1.85;
+  key.shadow.camera.far = 3.35;
+  // radius only means anything to VSM; under PCF the edge sharpness is the resolution.
+  // A tight contact shadow is what makes the base sit on the floor rather than near it.
+  key.shadow.bias = -0.0002;
+  key.shadow.normalBias = 0.0022;
   scene.add(key);
 
+  /* The rim is what stops a dark matte column reading as a black shape: it grazes the
+     silhouette and puts a cool edge on the metal, which is the difference between "a
+     column" and "a metal column". It is deliberately the second-strongest light. */
   const rim = new THREE.DirectionalLight(0xc7d2da, 0.5);
-  rim.position.set(1.5, 1.1, -1.2);
+  rim.position.set(1.62, 1.30, -1.34);
   scene.add(rim);
 
-  const seamLight = new THREE.PointLight(0xffb464, 2.2, 0.95, 2);
+  const seamLight = new THREE.PointLight(0xffb464, 0.9, 0.85, 2);
   seamLight.position.set(0, 0.16, 0);
   scene.add(seamLight);
   /* the object */
   const group = new THREE.Group();
   scene.add(group);
 
-  const profilePts = bodyProfile().map(([y, r]) => new THREE.Vector2(r, y));
-  const bodyGeo = new THREE.LatheGeometry(profilePts, 200, 0, Math.PI * 2);
-  bodyGeo.computeVertexNormals();
-
+  const bodyGeo = shellGeometry();
   const blast = blastMap();
-  blast.repeat.set(11, 11);
-  const bodyMat = seamify(new THREE.MeshStandardMaterial({
-    color: 0x3a3d41, metalness: 0.72, roughness: 0.46,
-    envMapIntensity: 1.35,
-    bumpMap: blast, bumpScale: 0.05,
+  const bodyMat = channelify(new THREE.MeshStandardMaterial({
+    color: 0x3a3d41, metalness: 0.78, roughness: 0.56,
+    envMapIntensity: 0.95,
+    bumpMap: blast, bumpScale: 0.10,
     side: THREE.DoubleSide,
   }));
   const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -504,15 +655,14 @@ export function createStage(canvasEl, opts = {}) {
   body.receiveShadow = true;
   group.add(body);
 
-  /* plinth */
+  /* plinth — no channel in it, so it takes the same finish without the slot shader */
   const plinthProfile = [
     [0.0, 0.0000], [0.0, 0.0968], [0.0042, 0.0982], [0.0146, 0.0980],
     [0.0178, 0.0962], [0.0194, 0.0898], [0.0200, 0.0790], [0.0194, 0.0712],
     [0.0, 0.0],
   ].map(([y, r]) => new THREE.Vector2(r, y));
   const plinthGeo = new THREE.LatheGeometry(plinthProfile, 180);
-  const plinthMat = seamify(bodyMat.clone());
-  plinthMat.onBeforeCompile = bodyMat.onBeforeCompile;
+  const plinthMat = bodyMat.clone();
   const plinth = new THREE.Mesh(plinthGeo, plinthMat);
   plinth.castShadow = true;
   plinth.receiveShadow = true;
@@ -520,42 +670,31 @@ export function createStage(canvasEl, opts = {}) {
 
   const dial = new THREE.Mesh(
     new THREE.CylinderGeometry(0.0986, 0.0986, 0.0090, 140, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0x8b867e, metalness: 0.94, roughness: 0.30, envMapIntensity: 1.7 })
+    new THREE.MeshStandardMaterial({ color: 0x8b867e, metalness: 0.94, roughness: 0.34, envMapIntensity: 1.35 })
   );
   dial.position.y = 0.0094;
   group.add(dial);
 
   /* the light that escapes the slot: sits just outside the shell, follows the seam.
      This is what makes the object read as the source instead of a backlit prop. */
-  const slotLight = new THREE.PointLight(0xffb464, 2.4, 0.80, 2);
-  slotLight.position.set(0, SLOT_Y, 0);
+  const slotLight = new THREE.PointLight(0xffb464, 1.0, 0.62, 2);
+  slotLight.position.set(0, 0.5 * (CHANNEL.yMin + CHANNEL.yMax), 0);
   group.add(slotLight);
 
-  const slotLightLow = new THREE.PointLight(0xffb464, 1.0, 0.75, 2);
+  const slotLightLow = new THREE.PointLight(0xffb464, 0.45, 0.50, 2);
   slotLightLow.position.set(0, 0.075, 0);
   group.add(slotLightLow);
 
-  /* the diffuser core is now expressed in the shader (the groove floor emits),
-     so this material is only a holder for the emitted colour and level */
+  /* the diffuser core is expressed in the shader (the groove floor emits), so this
+     material is only a holder for the emitted colour and level */
   const coreMat = new THREE.MeshStandardMaterial({
-    color: 0xfff4e4, emissive: new THREE.Color(0xffb464), emissiveIntensity: 2.6,
+    color: 0xfff4e4, emissive: new THREE.Color(0xffb464), emissiveIntensity: 2.2,
     roughness: 0.95, metalness: 0.0,
   });
 
   // oval plan
-  group.scale.set(1.24, 1, 1);
-
-  /* glow — one small contact glow only. A large screen-space bloom sprite reads as
-   haze floating in front of the wall; the wall spill and floor pool are the real
-   light cues, and they are anchored in world space. */
-  const glowTex = radialTexture(1, 0.5);
-  const glowBase = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTex, color: 0xffb464, blending: THREE.AdditiveBlending,
-    transparent: true, depthWrite: false, opacity: 0.12,
-  }));
-  glowBase.scale.set(0.24, 0.13, 1);
-  glowBase.position.set(0, 0.035, 0.06);
-  scene.add(glowBase);
+  const groupScaleX = 1.24;
+  group.scale.set(groupScaleX, 1, 1);
 
   /* ---------- state ---------- */
   const state = {
@@ -563,14 +702,14 @@ export function createStage(canvasEl, opts = {}) {
     finishTarget: FINISHES[2],
     atmosphere: ATMOSPHERES[1],
     atmoTarget: ATMOSPHERES[1],
-    phase: SEAM.uPhase.value,
-    targetPhase: SEAM.uPhase.value,
+    orbit: 0,
+    targetOrbit: 0,
+    phase: CHANNEL.phase,
+    seamPhase: CHANNEL.phase,
     intensity: 0.72,
     targetIntensity: 0.72,
     mood: 0.85,
     targetMood: 0.85,
-    orbit: 0,
-    targetOrbit: 0,
     camera: { pos: new THREE.Vector3(0, 0.25, 0.98), target: new THREE.Vector3(-0.03, 0.2, 0), fov: 33 },
     targetCam: {
       pos: new THREE.Vector3(0, 0.25, 0.98),
@@ -581,19 +720,18 @@ export function createStage(canvasEl, opts = {}) {
 
   const DAY = {
     bg: new THREE.Color(0xc7bfb1), wall: new THREE.Color(0xd6cec0), floor: new THREE.Color(0xc2bbad),
-    hemi: 1.5, key: 2.4, rim: 1.1, exposure: 0.93, fogNear: 2.4, fogFar: 6.8,
+    hemi: 1.5, key: 2.4, rim: 1.1, exposure: 0.90, fogNear: 2.4, fogFar: 6.8,
     keyColor: new THREE.Color(0xfff6ea), envInt: 1.0,
   };
   const NIGHT = {
     bg: new THREE.Color(0x0d0b0a), wall: new THREE.Color(0x2a2521), floor: new THREE.Color(0x1f1b18),
-    hemi: 0.14, key: 0.62, rim: 0.62, exposure: 1.06, fogNear: 1.05, fogFar: 3.6,
-    keyColor: new THREE.Color(0x9fb4c6), envInt: 0.30,
+    hemi: 0.22, key: 0.86, rim: 1.30, exposure: 0.98, fogNear: 1.05, fogFar: 3.6,
+    keyColor: new THREE.Color(0x9fb4c6), envInt: 0.78,
   };
   const tmp = new THREE.Color();
 
   function setFinish(id) { state.finishTarget = FINISHES.find((f) => f.id === id) || FINISHES[0]; }
   function setAtmosphere(id) { state.atmoTarget = ATMOSPHERES.find((a) => a.id === id) || ATMOSPHERES[1]; }
-  function setPhase(rad) { state.targetPhase = rad; }
   function setOrbit(rad) { state.targetOrbit = rad; }
   function setIntensity(v) { state.targetIntensity = Math.max(0, Math.min(1, v)); }
   function setMood(v) { state.targetMood = Math.max(0, Math.min(1, v)); }
@@ -608,6 +746,38 @@ export function createStage(canvasEl, opts = {}) {
     state.camera.fov = state.targetCam.fov;
   }
 
+  /* the slot's world position and outward direction, along the helix */
+  const _rot = (x, z, ang) => {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    return [x * c + z * s, -x * s + z * c];
+  };
+  const emitAt = (t, out) => {
+    /* The seam's angle in the object's own frame, and then the object's rotation —
+       applied once, here. Rotating the sample and then rotating it again (which is
+       what happens if the phase already carries the orbit) leaves the floor pattern
+       nailed to the room while the object turns under it. */
+    const y = CHANNEL.yMin + (CHANNEL.yMax - CHANNEL.yMin) * t;
+    const r = Math.max(0.01, outerRadius(y) - CHANNEL.depth * 0.5);
+    const a = CHANNEL.phase + t * CHANNEL.turns * TAU;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const [ex, ez] = _rot(r * ca * groupScaleX, r * sa, state.orbit);
+    out.set(ex, y, ez);
+    return [ca * groupScaleX, sa];
+  };
+  function updateEmitters(A, phase, orbit) {
+    for (let k = 0; k < SPILL_SAMPLES; k++) {
+      // consecutive samples are the ends of one piece of the helix, so the eight
+      // pieces tile it end to end and the integral sees a continuous line
+      const n0 = emitAt(k / SPILL_SAMPLES, A.a[k]);
+      const n1 = emitAt((k + 1) / SPILL_SAMPLES, A.b[k]);
+      const [nx0, nz0] = _rot(n0[0], n0[1], orbit);
+      const [nx1, nz1] = _rot(n1[0], n1[1], orbit);
+      const nx = nx0 + nx1, nz = nz0 + nz1;
+      const nl = Math.hypot(nx, nz) || 1;
+      A.norm[k].set(nx / nl, 0, nz / nl);
+    }
+  }
+
   let t = 0;
   let instant = false;
   function settle() { instant = true; }      // jump every damped value to its target (tests, deep links)
@@ -618,7 +788,6 @@ export function createStage(canvasEl, opts = {}) {
     t += dt;
     const k = (tau) => (instant ? 1 : Math.min(1, Math.max(0, 1 - Math.exp(-dt / tau))));
 
-    state.phase += (state.targetPhase - state.phase) * k(0.16);
     state.orbit += (state.targetOrbit - state.orbit) * k(0.10);
     state.intensity += (state.targetIntensity - state.intensity) * k(0.14);
     state.mood += (state.targetMood - state.mood) * k(0.42);
@@ -654,18 +823,18 @@ export function createStage(canvasEl, opts = {}) {
     seamLight.color.lerp(tmp.set(at.color), al);
     wallSpillMat.uniforms.uColor.value.lerp(tmp.set(at.spill), al);
     floorPoolMat.uniforms.uColor.value.lerp(tmp.set(at.spill), al);
-    glowBase.material.color.lerp(tmp.set(at.color), al);
+    slotLight.color.lerp(tmp.set(at.color), al);
+    slotLightLow.color.lerp(tmp.set(at.color), al);
 
     const i = state.intensity;
-    coreMat.emissiveIntensity = 0.9 + i * 2.6;
-    SEAM.uGlowColor.value.copy(coreMat.emissive);
-    SEAM.uGlow.value = 0.9 + i * 3.6;
-    seamLight.intensity = 0.25 + i * 1.35;
-    glowBase.material.opacity = 0.04 + i * 0.10;
-    slotLight.intensity = 0.15 + i * 0.85;
-    slotLight.color.copy(coreMat.emissive);
-    slotLightLow.intensity = 0.1 + i * 0.5;
-    slotLightLow.color.copy(coreMat.emissive);
+    coreMat.emissiveIntensity = 0.9 + i * 2.2;
+    CH.uGlowColor.value.copy(coreMat.emissive);
+    CH.uGlow.value = 0.55 + i * 1.35;
+    // the slot's own bounce stays small: a dark anodised body must not be repainted
+    // amber by the light that comes out of it
+    seamLight.intensity = 0.18 + i * 0.52;
+    slotLight.intensity = 0.10 + i * 0.34;
+    slotLightLow.intensity = 0.05 + i * 0.16;
 
     /* mood: 0 = plaster daylight, 1 = night */
     const m = state.mood;
@@ -681,26 +850,28 @@ export function createStage(canvasEl, opts = {}) {
     key.color.copy(DAY.keyColor).lerp(NIGHT.keyColor, m);
     scene.environmentIntensity = DAY.envInt + (NIGHT.envInt - DAY.envInt) * m;
     renderer.toneMappingExposure = DAY.exposure + (NIGHT.exposure - DAY.exposure) * m;
-    contact.material.opacity = (0.30 + 0.42 * m) * (1 - 0.35 * i);
 
-    // emitted light reads in both moods: the room is never lit by anything else at night
+    // the room is never lit by anything else at night
     const ember = 0.55 + 0.45 * m;
-    wallSpillMat.uniforms.uPower.value = (0.42 + i * 0.95) * ember;
-    floorPoolMat.uniforms.uPower.value = (0.34 + i * 0.88) * ember;
+    // calibrated so the hottest floor patch lands under the seam, and nothing clips
+    wallSpillMat.uniforms.uPower.value = (0.064 + i * 0.162) * ember;
+    floorPoolMat.uniforms.uPower.value = (0.058 + i * 0.142) * ember;
 
-    const sway = Math.sin(state.phase) * 0.85 + Math.sin(state.orbit) * 0.3;
-    wallSpillMat.uniforms.uSway.value = sway;
-    floorPoolMat.uniforms.uSway.value = sway;
+    // the slot turns with the object, because it is part of the object
+    group.rotation.y = state.orbit;
+    state.seamPhase = CHANNEL.phase + state.orbit;
+    state.phase = state.seamPhase;
+    updateEmitters(wallA, state.seamPhase, state.orbit);
+    updateEmitters(floorA, state.seamPhase, state.orbit);
+    state.spill = { x: floorA.a[0].x, z: floorA.a[0].z, y: floorA.a[0].y };
 
-    // a soft source just outside the shell: it pools on the floor and wall without
-    // blasting the metal (the metal's warm bleed is shaded, not lit)
-    const sa = slotAngle(state.phase);
-    const rOut = SLOT_RADIUS * (1.5 + 1.1 * state.intensity);
-    slotLight.position.set(Math.cos(sa) * rOut, SLOT_Y, Math.sin(sa) * rOut);
+    const sa = state.seamPhase + 0.5 * CHANNEL.turns * TAU;
+    const rOut = Math.max(0.02, outerRadius(0.5 * (CHANNEL.yMin + CHANNEL.yMax)) - CHANNEL.depth * 0.5) * groupScaleX;
+    slotLight.position.set(Math.cos(sa) * rOut, 0.5 * (CHANNEL.yMin + CHANNEL.yMax), Math.sin(sa) * rOut);
     slotLightLow.position.set(Math.cos(sa - 1.1) * rOut * 0.86, 0.075, Math.sin(sa - 1.1) * rOut * 0.86);
 
-    group.rotation.y = state.orbit;
-    SEAM.uPhase.value = state.phase;
+    contactCore.material.opacity = (0.30 + 0.44 * m) * (1 - 0.30 * i);
+    contactWide.material.opacity = (0.16 + 0.24 * m) * (1 - 0.20 * i);
 
     if (!reduced) group.position.y = Math.sin(t * 0.5) * 0.0009;
 
@@ -713,8 +884,6 @@ export function createStage(canvasEl, opts = {}) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    wallSpillMat.uniforms.uAspect.value = 3.4 / 2.2;
-    floorPoolMat.uniforms.uAspect.value = 1;
   }
 
   /* screen-space box of the object — used by the layout checks and by the film script */
@@ -742,9 +911,60 @@ export function createStage(canvasEl, opts = {}) {
              cx: Math.round((r.left + r.right) / 2), cy: Math.round((r.top + r.bottom) / 2) };
   }
 
+  /* the cut, measured off the real vertex buffer — what tools/verify.mjs asserts on.
+     outerRadius() is the smooth profile the lathe used to follow; the difference is
+     the depth of the recess, so it cannot be a shader effect that reports itself. */
+  /* where the light actually leaves the object: used to prove the spill is the seam's
+     spill and not a pool that happens to sit under it */
+  function spillProbe() {
+    const p = floorA.a[0];
+    return {
+      x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4),
+      azimuth: +(Math.atan2(p.z, p.x)).toFixed(4),
+      radius: +Math.hypot(p.x, p.z).toFixed(4),
+      spread: +Math.hypot(floorA.b[SPILL_SAMPLES - 1].x - floorA.a[0].x,
+                          floorA.b[SPILL_SAMPLES - 1].z - floorA.a[0].z).toFixed(4),
+    };
+  }
+
+  function grooveProbe(atY) {
+    const p = bodyGeo.getAttribute('position');
+    const g = bodyGeo.getAttribute('aGroove');
+    /* the rings are not evenly spaced, so snap to the ring nearest the height asked
+       for rather than requiring one inside a tolerance */
+    let row = null, best = Infinity;
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(g.getX(i)) > 0.24) continue;
+      const d = Math.abs(p.getY(i) - atY);
+      if (d < best - 1e-6) { best = d; row = p.getY(i); }
+    }
+    let floor = Infinity, outer = 0, n = 0;
+    if (row !== null) {
+      for (let i = 0; i < p.count; i++) {
+        if (Math.abs(g.getX(i)) > 0.24) continue;
+        if (Math.abs(p.getY(i) - row) > 1e-6) continue;
+        n++;
+        floor = Math.min(floor, Math.hypot(p.getX(i), p.getZ(i)));
+        outer = Math.max(outer, Math.hypot(p.getX(i), p.getZ(i)));
+      }
+    }
+    // the profile the lathe would have followed with no channel cut into it
+    const prof = outerRadius(row === null ? atY : row);
+    return {
+      at: atY, samples: n, ringY: row === null ? null : +row.toFixed(5),
+      floorRadius: floor === Infinity ? null : +floor.toFixed(5),
+      profileRadius: +prof.toFixed(5),
+      depth: floor === Infinity ? null : +(prof - floor).toFixed(5),
+      halfWidth: +(channelHalf(row === null ? atY : row)).toFixed(5),
+      shoulderRadius: outer ? +outer.toFixed(5) : null,
+      vertices: p.count,
+    };
+  }
+
   return {
-    scene, camera, renderer, group, body, bodyMat, coreMat, state,
+    scene, camera, renderer, group, body, bodyMat, plinthMat, coreMat, state,
     update, resize, compile, dispose: () => renderer.dispose(),
-    setFinish, setAtmosphere, setPhase, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle, objectRect,
+    setFinish, setAtmosphere, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle,
+    objectRect, grooveProbe, spillProbe, CHANNEL, outerRadius,
   };
 }

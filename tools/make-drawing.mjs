@@ -2,7 +2,7 @@
    so the technical drawing and the 3D object cannot drift apart. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { OUTER } from '../js/scene3d.js';
+import { OUTER, CHANNEL } from '../js/scene3d.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const INK = '#14110e';
@@ -24,7 +24,9 @@ const left = OUTER.slice().reverse().map(([y, r]) => [cx - px(r), py(y)]);
 const sil = `M${right.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L ')} L ${left.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L ')} Z`;
 
 /* the helical channel, drawn only where it faces the viewer (sin a >= 0) */
-const PHASE = -1.15, TURNS = 1.16, Y0 = 0.038, Y1 = 0.286;
+/* every channel number comes from the renderer's own constant, so a change to the
+   milled profile cannot leave the drawing lying about it */
+const PHASE = CHANNEL.phase, TURNS = CHANNEL.turns, Y0 = CHANNEL.yMin, Y1 = CHANNEL.yMax;
 const R = (y) => {
   for (let i = 0; i < OUTER.length - 1; i++) {
     const [ya, ra] = OUTER[i], [yb, rb] = OUTER[i + 1];
@@ -61,12 +63,24 @@ const dimLeftX = cx - px(rmax) * 1.24 - 46;
 const dimTopY = py(totalH);
 const dimBotY = py(0);
 
-/* channel section detail */
+/* channel section detail — drawn from CHANNEL, not from a sketch of it.
+   1 mm = 1.6 px here; the lips, the flat machined floor and the 0,6 mm edge breaks are
+   the same numbers the lathe shell is cut with. */
 const dX = 404, dY = 300, dR = 62;
-const groove = 12;   // px representing 9 mm at the drawing's magnification
+const MM = 1.6;                                   // px per millimetre in the detail
+const ap = CHANNEL.aperture * 1000 * MM;          // 9 mm across the lips
+const half = ap / 2;
+const dep = CHANNEL.depth * 1000 * MM;            // 5 mm to the floor
+const brk = CHANNEL.break * 1000 * MM;            // 0,6 mm edge break
+const xWall = half * CHANNEL.wallEnd;
+const xFloor = half * CHANNEL.floorEnd;
+const xOpal = half * CHANNEL.opalEnd;
+const ARM = dR * 0.78, DEEP = 27;
+const cut = `M${-ARM},0 L${-half},0 L${-xWall},${brk} L${-xFloor},${dep} L${xFloor},${dep} L${xWall},${brk} L${half},0 L${ARM},0 L${ARM},${DEEP} L${-ARM},${DEEP} Z`;
+const surface = `M${-ARM},0 L${-half},0 L${-xWall},${brk} L${-xFloor},${dep} L${xFloor},${dep} L${xWall},${brk} L${half},0 L${ARM},0`;
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"
-  aria-label="Vesper 01 front elevation and channel section: 348 millimetres tall, 196 millimetres wide at the plinth, with a 9 millimetre helical channel making 1.16 turns.">
+  aria-label="Vesper 01 front elevation and channel section: 348 millimetres tall, 196 millimetres wide at the plinth, with a single helical channel 9 millimetres across, milled 5 millimetres deep and making 1.16 turns.">
 <title>Vesper 01 — front elevation and channel section, 1:4</title>
 <defs>
   <pattern id="hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
@@ -110,27 +124,36 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" wid
 </g>
 
 <!-- channel section detail -->
+<clipPath id="detclip"><circle cx="${dX}" cy="${dY}" r="${dR - 1}"/></clipPath>
 <g transform="translate(${dX} ${dY})">
   <circle r="${dR}" stroke="${INK}" fill="#efe7d9" stroke-width="0.9" opacity="1"/>
-  <g stroke="${INK}" fill="none" stroke-width="1">
-    <path d="M${-dR * 0.78},${-groove / 2 - 26} L${-groove / 2},${-groove / 2 - 26} L${-groove / 2},${groove / 2 + 26} L${-dR * 0.78},${groove / 2 + 26} Z" fill="url(#hatch)"/>
-    <path d="M${groove / 2},${-groove / 2 - 26} L${dR * 0.78},${-groove / 2 - 26} L${dR * 0.78},${groove / 2 + 26} L${groove / 2},${groove / 2 + 26} Z" fill="url(#hatch)"/>
+  <g clip-path="url(#detclip)">
+    <path d="${cut}" fill="url(#hatch)" stroke="none"/>
+    <path d="${surface}" fill="none" stroke="${INK}" stroke-width="1"/>
+    <line x1="${-xOpal}" y1="${dep}" x2="${xOpal}" y2="${dep}" stroke="${GLOW}" stroke-width="3.2"/>
   </g>
-  <line x1="${-groove / 2}" y1="${-groove / 2 - 34}" x2="${groove / 2}" y2="${-groove / 2 - 34}" stroke="${INK}" stroke-width="0.8"/>
-  <line x1="${-groove / 2}" y1="${-groove / 2 - 39}" x2="${-groove / 2}" y2="${-groove / 2 - 29}" stroke="${INK}" stroke-width="0.8"/>
-  <line x1="${groove / 2}" y1="${-groove / 2 - 39}" x2="${groove / 2}" y2="${-groove / 2 - 29}" stroke="${INK}" stroke-width="0.8"/>
-  <line x1="${-groove / 2}" y1="${groove / 2 + 30}" x2="${groove / 2}" y2="${groove / 2 + 30}" stroke="${GLOW}" stroke-width="3.4"/>
-  <text x="0" y="${-groove / 2 - 44}" fill="${INK}" font-family="IBM Plex Mono, monospace" font-size="9.5" text-anchor="middle">9</text>
+  <!-- aperture, measured across the lips -->
+  <g stroke="${INK}" stroke-width="0.8" fill="none">
+    <line x1="${-half}" y1="-5" x2="${-half}" y2="-15"/>
+    <line x1="${half}" y1="-5" x2="${half}" y2="-15"/>
+    <line x1="${-half}" y1="-10" x2="${half}" y2="-10"/>
+  </g>
+  <text x="0" y="-17" fill="${INK}" font-family="IBM Plex Mono, monospace" font-size="9.5" text-anchor="middle">9</text>
+  <!-- depth to the machined floor -->
+  <g stroke="${INK}" stroke-width="0.8" fill="none">
+    <line x1="${ARM - 2}" y1="0" x2="${ARM + 9}" y2="0"/>
+    <line x1="${ARM - 2}" y1="${dep}" x2="${ARM + 9}" y2="${dep}"/>
+    <line x1="${ARM + 5}" y1="0" x2="${ARM + 5}" y2="${dep}"/>
+  </g>
+  <text x="${ARM + 10}" y="${dep / 2 + 3}" fill="${INK}" font-family="IBM Plex Mono, monospace" font-size="8.5">5</text>
 </g>
-<path d="M${cx - px(rmax) * 1.24 + 8},${py(0.16)} L${dX - dR - 6},${dY}" stroke="${INK}" stroke-width="0.6" fill="none" stroke-dasharray="5 4" opacity="0.6"/>
-<circle cx="${cx - px(rmax) * 1.24 + 8}" cy="${py(0.16)}" r="3" fill="${INK}"/>
 
 <!-- labels -->
 <g fill="${INK}" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="0.6">
   <text x="${dimLeftX - 12}" y="${(dimTopY + baseY) / 2}" text-anchor="end">348</text>
   <text x="${cx}" y="${baseY + 50}" text-anchor="middle">196</text>
   <text x="${dX}" y="${dY + dR + 20}" text-anchor="middle" font-size="9">SECTION A—A · CHANNEL</text>
-  <text x="${dX}" y="${dY + dR + 34}" text-anchor="middle" font-size="9" fill="${HALF}">OPAL DIFFUSER 5 mm BEHIND</text>
+  <text x="${dX}" y="${dY + dR + 34}" text-anchor="middle" font-size="9" fill="${HALF}">OPAL DIFFUSER ON THE FLOOR · 0,6 LIP BREAK</text>
 </g>
 <g fill="${HALF}" font-family="IBM Plex Mono, monospace" font-size="9" letter-spacing="1.4">
   <text x="24" y="30">VESPER 01 · FRONT ELEVATION</text>
@@ -138,7 +161,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" wid
   <text x="${W - 24}" y="${H - 16}" text-anchor="end">FIG. 01</text>
 </g>
 <g fill="${INK}" font-family="IBM Plex Mono, monospace" font-size="9" letter-spacing="1.4">
-  <text x="24" y="${H - 16}">FLAT PATTERN · ALLOY 6063 · CHANNEL 1.16 TURNS</text>
+  <text x="24" y="${H - 16}">ALLOY 6063 · CHANNEL 9 × 5 · 1.16 TURNS · MACHINED</text>
 </g>
 </svg>
 `;

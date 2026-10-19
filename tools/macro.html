@@ -21,12 +21,15 @@ const finish = q.get('finish') || 'slate';
 const mood = parseFloat(q.get('mood') || '0.9');
 const inten = parseFloat(q.get('i') || '0.75');
 const dist = parseFloat(q.get('d') || '0.30');
+const aim = parseFloat(q.get('aim') || '0.162');
 s.setMood(mood); s.setIntensity(inten); s.setAtmosphere(atmo); s.setFinish(finish);
-s.setPhase(-2.073); s.setOrbit(0);
-s.paceCamera([0.0, 0.168, dist], [0.0, 0.162, 0], 24); s.snapCamera();
+/* the seam is part of the body now, so `turn` rotates the object, not a shader phase */
+const turn = parseFloat(q.get('turn') || '-1.07');
+s.setOrbit(turn);
+s.paceCamera([0.0, 0.168, dist], [0.0, aim, 0], 24); s.snapCamera();
 function fit(){ const c = document.getElementById('stage'); s.resize(c.clientWidth, c.clientHeight); }
 fit(); addEventListener('resize', fit);
-document.getElementById('hud').textContent = `${finish} · ${atmo} · mood ${mood} · i ${inten} · d ${dist}`;
+document.getElementById('hud').textContent = `${finish} · ${atmo} · mood ${mood} · i ${inten} · d ${dist} · turn ${turn}`;
 let last = performance.now();
 function loop(t){ const dt = Math.min(0.05, Math.max(0, (t - last) / 1000)); last = t; s.update(dt); requestAnimationFrame(loop); }
 requestAnimationFrame(loop);

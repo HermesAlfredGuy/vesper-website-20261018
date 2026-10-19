@@ -1,20 +1,29 @@
 /* VESPER — product data.
+
+   Pass 2 ─ the numbers here are what the material actually does, and cast aluminium is
+   a grey metal: the finishes no longer carry a high-gloss specular (a roughness of 0.38
+   on a metalness of 0.86 is polished, not bead-blasted) and they no longer mirror a warm
+   environment into a champagne highlight that competes with the channel.
+
    Kept free of any three.js import so the page's copy, controls and state are fully
    usable the moment the document paints; the WebGL stage loads these same objects
    later, on its own, without blocking the first view. */
 
 export const FINISHES = [
   { id: 'foundry', name: 'Foundry', sub: 'raw cast aluminium', swatch: '#b3afa6',
-    color: 0xb0aca3, metalness: 0.86, roughness: 0.38, env: 1.7,
+    // a satin metal, not a mirror: metalness 0.74 leaves just enough diffuse albedo for
+    // the body to keep its own neutral grey when the room is entirely amber, which is
+    // what stops raw aluminium reading as bronze
+    color: 0xb6b3ac, metalness: 0.74, roughness: 0.46, env: 1.85,
     blurb: 'Bead-blasted and left unsealed. It keeps the fingerprints of the room.' },
   { id: 'umber', name: 'Umber', sub: 'burnt bronze', swatch: '#6b4527',
-    color: 0x6b4527, metalness: 0.95, roughness: 0.29, env: 1.9,
+    color: 0x6b4527, metalness: 0.90, roughness: 0.42, env: 1.20,
     blurb: 'Bronze PVD over aluminium, oxidised to the colour of a coal that has gone out.' },
   { id: 'slate', name: 'Slate', sub: 'anodised charcoal', swatch: '#3a3d41',
-    color: 0x3a3d41, metalness: 0.72, roughness: 0.46, env: 1.35,
+    color: 0x393c40, metalness: 0.78, roughness: 0.56, env: 0.95,
     blurb: 'Deep anodising, fine-blasted. Reads black until light rakes across it.' },
   { id: 'bone', name: 'Bone', sub: 'chalk ceramic', swatch: '#ded5c4',
-    color: 0xded5c4, metalness: 0.0, roughness: 0.82, env: 0.7,
+    color: 0xded5c4, metalness: 0.0, roughness: 0.86, env: 0.62,
     blurb: 'Sprayed ceramic, matte to the touch. The warmest thing in a white room.' },
 ];
 

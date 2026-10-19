@@ -18,7 +18,7 @@ const t0 = Date.now();
 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
 let stageLiveMs = null;
 try {
-  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live'), { timeout: 120000, polling: 250 });
+  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live'), null, { timeout: 120000, polling: 250 });
   stageLiveMs = Date.now() - t0;
 } catch (e) { stageLiveMs = 'did not go live within 120s'; }
 const loadMs = Date.now() - t0;

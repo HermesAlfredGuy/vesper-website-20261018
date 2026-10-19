@@ -29,7 +29,7 @@ page.on('pageerror', (e) => console.log('PAGEERROR ' + e.message));
 await page.goto(url, { waitUntil: 'load' });
 await page.waitForTimeout(1500);
 try {
-  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live') && window.__stage, { timeout: 180000, polling: 500 });
+  await page.waitForFunction(() => document.getElementById('stage').classList.contains('is-live') && window.__stage, null, { timeout: 180000, polling: 500 });
 } catch (e) { console.log('PROBLEMS stage did not go live'); }
 await page.waitForTimeout(2500);
 await page.evaluate(() => document.querySelectorAll('.ln, .rv').forEach((e) => e.classList.add('is-in')));
@@ -45,39 +45,42 @@ const frames = [];
 const push = (o) => frames.push(o);
 const ease = (t) => t * t * (3 - 2 * t);
 
+/* The frame budget is real: every frame is a settled full render, and on a software
+   renderer that is seconds rather than milliseconds. The counts below are set so the
+   whole film renders in one sitting and still reads at 12 fps. */
 /* A — the hero, turning: the signature interaction, on its own */
-for (let i = 0; i < 50; i++) {
-  const t = i / 49;
+for (let i = 0; i < 26; i++) {
+  const t = i / 25;
   push({ scroll: tops.top, turn: (-0.5 + 1.0 * ease(t)) * 100 });
 }
 /* B — the scroll story: hero to the seam */
-for (let i = 1; i <= 42; i++) {
-  const t = ease(i / 42);
+for (let i = 1; i <= 22; i++) {
+  const t = ease(i / 22);
   push({ scroll: tops.top + (tops.object - tops.top) * t });
 }
 /* C — atmosphere: all four, on the room */
 const atmoIds = ['ember', 'meridian', 'lumen', 'hearth'];
 for (let a = 0; a < atmoIds.length; a++) {
-  for (let i = 0; i < 13; i++) push({ scroll: tops.atmosphere, atmo: atmoIds[a] });
+  for (let i = 0; i < 8; i++) push({ scroll: tops.atmosphere, atmo: atmoIds[a] });
 }
 /* D — finishes montage */
 const finIds = ['foundry', 'umber', 'bone', 'slate'];
 for (let a = 0; a < finIds.length; a++) {
-  for (let i = 0; i < 13; i++) push({ scroll: tops.materials, finish: finIds[a] });
+  for (let i = 0; i < 8; i++) push({ scroll: tops.materials, finish: finIds[a] });
 }
 /* E — the measured macro */
-for (let i = 1; i <= 32; i++) {
-  const t = ease(i / 32);
-  push({ scroll: tops.materials + (tops.specification - tops.materials) * t, finish: 'slate', atmo: 'hearth', turn: 30 });
+for (let i = 1; i <= 18; i++) {
+  const t = ease(i / 18);
+  push({ scroll: tops.materials + (tops.specification - tops.materials) * t, finish: 'foundry', atmo: 'hearth', turn: 30 });
 }
 /* F — closing on the reservation */
-for (let i = 1; i <= 32; i++) {
-  const t = ease(i / 32);
-  push({ scroll: tops.specification + (tops.reserve - tops.specification) * t, atmos: null });
+for (let i = 1; i <= 18; i++) {
+  const t = ease(i / 18);
+  push({ scroll: tops.specification + (tops.reserve - tops.specification) * t });
 }
 /* G — a last slow turn on the hero framing so the film does not just stop */
-for (let i = 0; i < 32; i++) {
-  const t = i / 31;
+for (let i = 0; i < 18; i++) {
+  const t = i / 17;
   push({ scroll: tops.reserve, turn: (30 + 25 * ease(t)) * 1 });
 }
 

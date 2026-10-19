@@ -73,7 +73,7 @@ const browser = await chromium.launch({
   const fin = await page.evaluate(async () => {
     document.querySelector('.fin[data-finish="bone"]').click();
     await new Promise((r) => setTimeout(r, 2600));
-    return { target: window.__stage.state.finishTarget.id, readout: document.getElementById('dockReadout').textContent };
+    return { target: window.__stage.state.finishTarget.id, readout: document.getElementById('readoutText').textContent };
   });
   check('desktop: finish control changes the scene', fin.target === 'bone' && /Bone/.test(fin.readout), JSON.stringify(fin));
 
@@ -88,10 +88,47 @@ const browser = await chromium.launch({
     const r = document.getElementById('turnRange');
     r.value = '100';
     r.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((x) => setTimeout(x, 2000));
-    return { orbit: Number(window.__stage.state.targetOrbit.toFixed(3)), phase: Number(window.__stage.state.targetPhase.toFixed(3)) };
+    await new Promise((x) => setTimeout(x, 900));
+    if (window.__stage.settle) { window.__stage.settle(); }
+    await new Promise((x) => setTimeout(x, 900));
+    const st = window.__stage.state, CH = window.__stage.CHANNEL;
+    return {
+      orbit: Number(st.orbit.toFixed(3)),
+      target: Number(st.targetOrbit.toFixed(3)),
+      groupRot: Number(window.__stage.group.rotation.y.toFixed(3)),
+      seam: Number(st.seamPhase.toFixed(3)),
+      derived: Number((st.seamPhase - (CH.phase + st.orbit)).toFixed(4)),
+    };
   });
-  check('desktop: turn control rotates the object and moves the seam', turn.orbit > 2.5 && turn.phase > 1, JSON.stringify(turn));
+  // the seam is milled into the body, so there is no separate phase to drift out of
+  // step with it: the seam's angle must always be the body's angle
+  check('desktop: turn control rotates the object and the seam turns with it',
+    turn.target > 2.5 && Math.abs(turn.groupRot - turn.orbit) < 0.01 && Math.abs(turn.derived) < 0.005,
+    JSON.stringify(turn));
+
+  const groove = await page.evaluate(() => [0.11, 0.17, 0.24].map((y) => window.__stage.grooveProbe(y)));
+  // measured off the vertex buffer, against the smooth profile the lathe would have
+  // followed: if the channel were a painted stripe these depths would all be zero
+  check('desktop: the channel is milled into the mesh, not drawn on it',
+    groove.every((g) => g.floorRadius !== null && g.depth > 0.0035 && g.depth <= 0.0055
+      && Math.abs(g.halfWidth - 0.0045) < 0.0008 && g.samples >= 3),
+    JSON.stringify(groove.map((g) => ({ at: g.at, depth: +(g.depth * 1000).toFixed(2), half: +(g.halfWidth * 1000).toFixed(2) }))));
+
+  /* the floor and the wall are lit by a line source that is part of the object, so
+     turning the object has to carry the pattern round with it. Rotating the emitter
+     twice (the classic version of this bug) leaves the pattern nailed to the room. */
+  const spill = await page.evaluate(async () => {
+    const s = window.__stage;
+    s.setOrbit(0); s.settle(); await new Promise((r) => setTimeout(r, 200));
+    const at0 = s.spillProbe();
+    s.setOrbit(1.2); s.settle(); await new Promise((r) => setTimeout(r, 200));
+    const at1 = s.spillProbe();
+    s.setOrbit(0); s.settle(); await new Promise((r) => setTimeout(r, 200));
+    return { at0, at1, delta: +(at1.azimuth - at0.azimuth).toFixed(3) };
+  });
+  check('desktop: the spill turns with the object (the seam owns the pattern)',
+    Math.abs(spill.delta) > 0.6 && spill.at1.radius > 0.02 && spill.at1.y > 0.02 && spill.at1.y < 0.30,
+    JSON.stringify(spill));
 
   const drag = await page.evaluate(async () => {
     const before = window.__stage.state.targetOrbit;
@@ -208,6 +245,33 @@ const browser = await chromium.launch({
     return bad.length === 0;
   }), await page.evaluate(() => JSON.stringify(window.__underDock)));
 
+  const cta = await page.evaluate(async () => {
+    const out = [];
+    for (const id of ['top', 'object', 'atmosphere', 'materials', 'specification', 'reserve']) {
+      const el = document.getElementById(id);
+      window.scrollTo(0, el.offsetTop + Math.max(0, (el.offsetHeight - innerHeight) / 2));
+      await new Promise((r) => setTimeout(r, 1100));
+      const dock = document.getElementById('dock');
+      // visibility flips on the frame the class lands, unlike the opacity fade, so
+      // this reads the state as the reader gets it and not as an animation queue sees it
+      const dcs = getComputedStyle(dock);
+      const dockVis = dcs.visibility !== 'hidden' && dcs.pointerEvents !== 'none'
+        && Number(dcs.opacity) > 0.5 && dock.getBoundingClientRect().top < innerHeight;
+      const lit = [...document.querySelectorAll('.btn--solid')].filter((b) => {
+        const r = b.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0 || r.bottom < 0 || r.top > innerHeight) return false;
+        const own = Number(getComputedStyle(b).opacity);
+        if (own < 0.5) return false;
+        if (b.closest('.dock') && !dockVis) return false;
+        return true;
+      });
+      out.push([id, lit.map((b) => b.textContent.trim().slice(0, 24))]);
+    }
+    return out;
+  });
+  check('desktop: one primary action is in front of the reader at a time',
+    cta.every(([, l]) => l.length <= 1), JSON.stringify(cta));
+
   check('desktop: Pause motion control is operable', await page.evaluate(async () => {
     const b = document.getElementById('motionToggle');
     b.click();
@@ -236,6 +300,29 @@ const browser = await chromium.launch({
       .filter((el) => el.offsetParent !== null)
       .every((el) => el.getBoundingClientRect().height >= 24)),
     await page.evaluate(() => JSON.stringify(Array.from(document.querySelectorAll('.btn,.swatch,.fin')).map((e) => [e.className.slice(0, 18), Math.round(e.getBoundingClientRect().height)]).slice(0, 14))));
+  const heroFrame = await page.evaluate(async () => {
+    window.scrollTo(0, 0);
+    await new Promise((r) => setTimeout(r, 1200));
+    if (window.__stage && window.__stage.settle) window.__stage.settle();
+    await new Promise((r) => setTimeout(r, 900));
+    const o = window.__stage.objectRect();
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4 ? r.top : Infinity; };
+    const parts = [...document.querySelectorAll('.sec--hero .copy')];
+    const copyTop = Math.min(...parts.map(vis));
+    return { o, copyTop: Math.round(copyTop), vh: innerHeight, vw: innerWidth,
+             offCentre: Math.round((o.left + o.right) / 2 - innerWidth / 2) };
+  });
+  /* the fold is the constraint: the whole object has to be inside the first screen,
+     high in the frame and centred, and the copy has to start below most of it */
+  check('mobile: the hero shows the whole object inside the first screen, centred',
+    heroFrame.o.top >= 0 && heroFrame.o.bottom <= heroFrame.vh
+      && heroFrame.o.left >= 0 && heroFrame.o.right <= heroFrame.vw
+      && heroFrame.o.top < heroFrame.vh * 0.12
+      && heroFrame.o.bottom > heroFrame.vh * 0.34
+      && heroFrame.copyTop >= heroFrame.o.bottom - 8
+      && Math.abs(heroFrame.offCentre) < 24,
+    JSON.stringify(heroFrame));
+
   check('mobile: dock stays inside the viewport', await page.evaluate(() => {
     const r = document.getElementById('dock').getBoundingClientRect();
     return r.left >= -1 && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1;
@@ -291,8 +378,15 @@ const browser = await chromium.launch({
     await page.waitForTimeout(2000);
     rmStage = await page.evaluate(() => !!window.__stage).catch(() => false);
   }
-  await page.evaluate(() => window.scrollTo(0, 1764));
-  await page.waitForTimeout(3000);
+  await page.evaluate(() => {
+    const el = document.getElementById('atmosphere');
+    window.scrollTo(0, el.offsetTop + Math.max(0, (el.offsetHeight - innerHeight) / 2));
+  });
+  // Wait for the *state*, not for a stopwatch. On a software renderer a single animation
+  // frame can be a second and a half away, so a fixed wait measures the renderer's mood
+  // as much as the page's; this asks the page the question it is actually checking.
+  await page.waitForFunction(() => window.__stage && window.__stage.state.targetMood === 1
+    && window.__stage.state.targetIntensity === 1, null, { timeout: 30000, polling: 250 });
   const snap = await page.evaluate(() => ({ mood: Number(window.__stage.state.targetMood.toFixed(3)), int: Number(window.__stage.state.targetIntensity.toFixed(3)) }));
   check('reduced motion: the scene still responds to scroll', snap.mood === 1 && snap.int === 1, JSON.stringify(snap));
   await ctx.close();
