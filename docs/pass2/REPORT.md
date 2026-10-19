@@ -140,3 +140,15 @@ hero framing the channel still reads as a milled groove with warm light in it ra
 gap: raising `uGlow` from 0.45 to 1.85 changed the groove's pixels by less than a count, so the
 emissive term is being killed by the escape mask at this angle rather than being too weak. This is
 the next thing to fix, and it is the one item of the pass-3 brief not delivered.
+
+### 5 · The film, re-shot from the corrected material
+
+`docs/pass2/vesper-pass3-film.mp4` — 166 frames, 1280 × 720, 12 fps, 13.833333 s, 3.02 MB,
+rendered from the current page after the material fix (the pass-2 film predated it and showed the
+old black-mirror body). Regenerate with:
+
+    node tools/film.mjs http://127.0.0.1:9311/index.html docs/pass2/film3 1024 576
+    bash tools/film.sh docs/pass2/film3 docs/pass2/vesper-pass3-film.mp4 12
+
+The 166 source frames are not committed (18 MB of intermediate state). Opened at 0.5 s the object
+band measures p50 **53.2** where the pass-2 film rendered the same object at p50 27.
