@@ -15,14 +15,14 @@ helix, 3.4 mm under the surface, occluded by the lips through the depth test. Sh
 is now only a bounce. Spill: gain ramp removed, blur 0.008→0.005, knee 1.05→0.45 so the band
 keeps an edge instead of flattening into a pool.
 
-**Overflow.** Two `::before` scrims bleeding `--pad/2`; pinned to the viewport and the blanket
-`overflow-x: hidden` deleted. 360/390/414 px all clean.
+**Overflow.** Two `::before` scrims bleeding `--pad/2`; pinned to the viewport, blanket
+`overflow-x: hidden` deleted. 360/390/414 px clean.
 
 **Performance.** All numbers are SwiftShader — not evidence about the owner's 4070. Startup
 was one 10.5–12 s uninterruptible task (9.9 s shader compile; geometry 26 ms). Now one mesh
 compiled per task with a yield, shadow map 4096→2048 (frame 5.7→1.1 ms), a 2.4 Mpx buffer
-budget, an adaptive 60/30 fps budget. One rAF loop; no Lenis.
+budget, an adaptive 60/30 fps budget, one rAF loop, no Lenis.
 
 **Interaction.** grab/grabbing cursor, touch scrolling intact. 20 finish checks across
-pre-load, mid-load, scrolling, dragging: 0 mismatches, 71.3/255 real pixel difference.
-`verify.mjs` 39/39.
+pre-load, mid-load, scrolling and dragging: 0 mismatches, 71.3/255 pixel difference.
+`verify.mjs` 39/39. Deploy: pushed; the Pages build is queued upstream, parity unconfirmed.
