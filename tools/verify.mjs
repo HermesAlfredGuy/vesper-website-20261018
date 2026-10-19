@@ -250,17 +250,11 @@ const browser = await chromium.launch({
     for (const id of ['top', 'object', 'atmosphere', 'materials', 'specification', 'reserve']) {
       const el = document.getElementById(id);
       window.scrollTo(0, el.offsetTop + Math.max(0, (el.offsetHeight - innerHeight) / 2));
-      // wait for the chapter state, not for a stopwatch: a scroll event is a task on the
-      // main thread and a WebGL frame here can take a second, so a fixed sleep can read
-      // the previous chapter's dock state and report the stand-down as a failure
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 250));
-        if (document.body.classList.contains('is-tone-dark') || document.body.classList.contains('is-tone-light')) {
-          const r = document.getElementById('reserve').getBoundingClientRect();
-          const want = id === 'reserve';
-          if ((r.top < innerHeight * 0.40 && r.bottom > innerHeight * 0.55) === want) break;
-        }
-      }
+      // wait for the *class*, not for a stopwatch and not for the geometry: the scroll
+      // event is a task on the main thread and a WebGL frame here can take a second, so
+      // a fixed sleep can read the previous chapter's dock state
+      await page.waitForFunction((want) => document.body.classList.contains('is-end') === want,
+        id === 'reserve', { timeout: 20000, polling: 200 }).catch(() => {});
       const dock = document.getElementById('dock');
       // visibility flips on the frame the class lands, unlike the opacity fade, so
       // this reads the state as the reader gets it and not as an animation queue sees it
