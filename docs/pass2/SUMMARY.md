@@ -2,7 +2,7 @@
 
 Measured detail: `docs/pass2/REPORT.md`.
 
-**Finish.** Ablation put the banding in the normal map, not the polygons or the shading:
+**Finish.** Ablation put the banding in the normal map, not the polygons:
 nulling `normalMap` dropped macro rms 0.103→0.004, deleting the channel shader changed
 nothing. The map carried 1 200 rings at a 0.26 mm pitch — a stripe every 1/11 px at the hero.
 Re-authored at real scale (512² = 64 mm, 4 mm pitch), rings resampled by surface angle. Ring
@@ -21,8 +21,8 @@ edge instead of flattening into a pool.
 **Performance.** All numbers are SwiftShader — not evidence about the owner's 4070. Startup
 was one 10.5–12 s uninterruptible task (9.9 s shader compile; geometry 26 ms). Now one mesh
 compiled per task with a yield, shadow map 4096→2048 (frame 5.7→1.1 ms), a 2.4 Mpx buffer
-budget, an adaptive 60/30 fps budget, one rAF loop, no Lenis.
+budget, an adaptive 60/30 fps budget, one rAF loop.
 
-**Interaction.** grab/grabbing cursor, touch scrolling intact. 20 finish checks across
+**Interaction.** grab/grabbing cursor, touch scroll intact. 20 finish checks across
 pre-load, mid-load, scrolling and dragging: 0 mismatches, 71.3/255 pixel difference.
 `verify.mjs` 39/39. Deploy: pushed; Pages build queued upstream, parity unconfirmed.
