@@ -175,6 +175,15 @@ body.is-dragging ::selection{background:transparent}
   background:var(--fg);margin-top:-6px;border:0;box-shadow:0 0 0 1px rgba(0,0,0,.35);
 }
 .turn__input::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--fg)}
+/* on a touch screen this slider *is* the interaction, so it gets a real target:
+   a thicker track and a thumb you can actually hit with a thumb */
+@media (pointer:coarse),(max-width:900px){
+  .turn__input{height:52px;width:min(340px,72vw)}
+  .turn__input::-webkit-slider-runnable-track{height:2px;background:rgba(239,231,217,.34)}
+  .turn__input::-moz-range-track{height:2px;background:rgba(239,231,217,.34)}
+  .turn__input::-webkit-slider-thumb{width:24px;height:24px;margin-top:-11px;box-shadow:0 0 0 1px rgba(0,0,0,.4),0 0 0 6px rgba(239,231,217,.10)}
+  .turn__input::-moz-range-thumb{width:24px;height:24px}
+}
 .turn__hint{margin:0;font-family:'IBM Plex Mono';font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-dim);opacity:.8}
 
 .readout{
@@ -298,13 +307,14 @@ body.is-dragging ::selection{background:transparent}
 
 /* ── configurator dock ────────────────────────────────────────────── */
 .dock{
-  position:fixed;z-index:var(--z-dock);left:var(--pad);right:var(--pad);bottom:14px;
+  position:fixed;z-index:var(--z-dock);left:var(--pad);right:var(--pad);
+  bottom:calc(14px + env(safe-area-inset-bottom,0px));
   display:flex;align-items:center;gap:clamp(10px,1.6vw,26px);flex-wrap:wrap;
   padding:12px clamp(12px,1.4vw,18px);border:1px solid var(--hairline);
   background:color-mix(in srgb,#12100e 90%,transparent);border-radius:3px;
 }
 @media (min-width:1100px){
-  .dock{left:auto;right:var(--pad);bottom:26px;flex-wrap:nowrap;gap:16px;padding:14px 18px}
+  .dock{left:auto;right:var(--pad);bottom:calc(26px + env(safe-area-inset-bottom,0px));flex-wrap:nowrap;gap:16px;padding:14px 18px}
 }
 .dock__group{display:flex;align-items:center;gap:10px;flex:none}
 .dock__label{display:none;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(239,231,217,.62)}
@@ -369,14 +379,17 @@ body.is-dragging ::selection{background:transparent}
   .foot{padding-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
 }
 @media (max-width:900px){
-  .sec:not(.sec--hero) .copy,
+  /* the object sits behind the copy at this width, so every copy block carries its own
+     scrim instead of relying on the horizontal one */
+  .sec .copy,
   .sec:not(.sec--hero) .table,
   .sec:not(.sec--hero) .atmos,
   .sec:not(.sec--hero) .finishes{
     background:color-mix(in srgb,#12100e 62%,transparent);
     padding:14px 16px;margin-left:-16px;margin-right:-16px;border-radius:3px;
   }
-  body.is-tone-light .sec:not(.sec--hero) .copy,
+  .sec--hero .copy{background:color-mix(in srgb,#12100e 48%,transparent)}
+  body.is-tone-light .sec .copy,
   body.is-tone-light .sec:not(.sec--hero) .table,
   body.is-tone-light .sec:not(.sec--hero) .atmos,
   body.is-tone-light .sec:not(.sec--hero) .finishes{

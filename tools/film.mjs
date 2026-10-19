@@ -14,7 +14,9 @@ const outDir = process.argv[3] || 'refs/film';
 const W = Number(process.argv[4] || 1280);
 const H = Number(process.argv[5] || 720);
 
-fs.rmSync(outDir, { recursive: true, force: true });
+/* A full render starts from an empty directory. A partial render (FROM/TO) must keep
+   the frames it is not replacing, so it only creates the directory. */
+if (!process.env.FROM && !process.env.TO) fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch({
@@ -80,7 +82,11 @@ for (let i = 0; i < 32; i++) {
 }
 
 let n = 0;
+const from = Number(process.env.FROM || 0);
+const to = Number(process.env.TO || frames.length);
 for (const f of frames) {
+  const index = n++;
+  if (index < from || index >= to) continue;
   await page.evaluate(async (fr) => {
     if (fr.scroll !== undefined) window.scrollTo({ top: fr.scroll, behavior: 'instant' });
     if (fr.turn !== undefined) {
@@ -101,9 +107,8 @@ for (const f of frames) {
   await page.waitForTimeout(240);
   await page.evaluate(() => window.__stage && window.__stage.settle && window.__stage.settle());
   await page.waitForTimeout(260);
-  await page.screenshot({ path: path.join(outDir, `f${String(n).padStart(4, '0')}.jpg`), type: 'jpeg', quality: 94, timeout: 120000 });
-  n++;
-  if (n % 20 === 0) console.log(`frame ${n}/${frames.length}`);
+  await page.screenshot({ path: path.join(outDir, `f${String(index).padStart(4, '0')}.jpg`), type: 'jpeg', quality: 94, timeout: 120000 });
+  if ((index + 1) % 20 === 0) console.log(`frame ${index + 1}/${frames.length}`);
 }
 console.log(`DONE ${n} frames -> ${outDir}`);
 await browser.close();
