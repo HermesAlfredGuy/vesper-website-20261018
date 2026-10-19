@@ -37,7 +37,6 @@ body{
   font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   font-size:18px;line-height:1.62;font-weight:400;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-  overflow-x:hidden;
 }
 @media (min-width:1100px){body{font-size:19px}}
 img{max-width:100%;display:block}
@@ -485,11 +484,17 @@ body.is-end .dock{opacity:0;transform:translateY(14px);pointer-events:none;visib
 @media (max-width:900px){
   .sec__inner{padding-left:var(--pad);padding-right:var(--pad)}
   .turn,.herofoot{padding-left:var(--pad);padding-right:var(--pad)}
-  /* one gradient per section, behind everything the section says */
+  /* one gradient per section, behind everything the section says.
+     The scrims used to bleed `--pad / 2` (9 px at 390 px) past both edges of the
+     viewport. Nothing is painted out there — the section and the .sec__inner already
+     span the full width — but the bleed still counted towards
+     documentElement.scrollWidth, which is what put the page at 399 px on a 390 px
+     phone. body{overflow-x:hidden} was hiding the symptom; these two rules were the
+     cause, so they are pinned to the viewport instead. */
   .sec:not(.sec--hero) .sec__inner::before,
   .sec--hero::before{
     content:'';position:absolute;pointer-events:none;z-index:-1;
-    left:calc(var(--pad) * -0.5);right:calc(var(--pad) * -0.5);
+    left:0;right:0;
   }
   .sec:not(.sec--hero) .sec__inner::before{
     top:-6vh;bottom:-8vh;

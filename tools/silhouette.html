@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VESPER — orthographic silhouette (not shipped)</title>
+<style>
+  html,body{margin:0;height:100%;background:#000}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script type="module">
+/* An orthographic silhouette, so "the outline is lumpy" can be answered with a number.
+   Perspective makes an edge measurement meaningless: the same millimetre is worth a
+   different number of pixels at the foot and at the shoulder. Orthographic removes that,
+   and a flat unlit material removes shading, so what is left is the mesh. */
+import * as THREE from '../vendor/three.module.js';
+import { createStage } from '../js/scene3d.js';
+
+const q = new URLSearchParams(location.search);
+const cv = document.getElementById('stage');
+const stage = createStage(cv);
+stage.setMood(0); stage.setAtmosphere(q.get('atmo') || 'hearth');
+stage.setFinish(q.get('finish') || 'foundry');
+stage.setOrbit(parseFloat(q.get('turn') || '0'));
+stage.paceCamera([0, 0.168, 1.2], [0, 0.162, 0], 24);
+stage.snapCamera();
+stage.resize(cv.clientWidth, cv.clientHeight);
+
+/* one update first — update() writes the background and the fog every frame, so
+   anything set before it is overwritten and the "silhouette" comes back pale */
+stage.update(0.016);
+
+stage.group.children.forEach((c) => { if (c.isMesh && c !== stage.body) c.visible = false; });
+stage.scene.traverse((o) => { if (o.isMesh && o !== stage.body) o.visible = false; });
+stage.body.visible = true;
+stage.body.material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+stage.scene.background = new THREE.Color(0x000000);
+stage.scene.fog.near = 40; stage.scene.fog.far = 80;    // null would crash update()
+
+const H = 0.34;                                  // metres of height in frame
+const W = H * (cv.clientWidth / cv.clientHeight);
+const ortho = new THREE.OrthographicCamera(-W / 2, W / 2, 0.02 + H, 0.02, -1, 6);
+ortho.position.set(0, 0.02 + H / 2, 2);
+ortho.lookAt(0, 0.02 + H / 2, 0);
+stage.renderer.render(stage.scene, ortho);
+window.__stage = stage;
+/* the harness calls settle() before it shoots; settle() would re-render with the
+   perspective camera and undo the point of this page */
+stage.settle = () => {};
+window.__sil = { H, W, h: cv.clientHeight, pxPerM: cv.clientHeight / H };
+document.title = 'silhouette ready';
+</script>
+</body>
+</html>
