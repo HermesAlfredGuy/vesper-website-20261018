@@ -185,6 +185,29 @@ const browser = await chromium.launch({
     return JSON.stringify({ dockLeft: Math.round(d.left), dockRight: Math.round(d.right), colRight: Math.round(col.right) });
   }));
 
+  // no readable text anywhere may sit under the fixed dock while a chapter is settled
+  check('desktop: no text sits under the dock when a chapter is settled', await page.evaluate(async () => {
+    const dock = document.getElementById('dock').getBoundingClientRect();
+    const sections = ['specification', 'reserve'];
+    const bad = [];
+    for (const id of sections) {
+      const sec = document.getElementById(id);
+      window.scrollTo(0, sec.offsetTop + sec.offsetHeight - window.innerHeight);
+      await new Promise((r) => setTimeout(r, 900));
+      const d = document.getElementById('dock').getBoundingClientRect();
+      for (const el of sec.querySelectorAll('p, td, th, h2, h3, dd, dt, a, button')) {
+        if (!(el.textContent || '').trim()) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        if (r.bottom > d.top + 2 && r.top < d.bottom - 2 && r.right > d.left + 2 && r.left < d.right - 2) {
+          bad.push((el.textContent || '').trim().slice(0, 30));
+        }
+      }
+    }
+    window.__underDock = bad;
+    return bad.length === 0;
+  }), await page.evaluate(() => JSON.stringify(window.__underDock)));
+
   check('desktop: Pause motion control is operable', await page.evaluate(async () => {
     const b = document.getElementById('motionToggle');
     b.click();
@@ -261,8 +284,8 @@ const browser = await chromium.launch({
     const ty = m ? Number(m[1].split(',')[5]) : 0;
     return { transform: cs.transform, ty, transition: cs.transitionProperty + ' ' + cs.transitionDuration };
   });
-  check('reduced motion: headline reveals do not translate (opacity only)',
-    Math.abs(rmSpan.ty) < 0.5 && !/transform/.test(rmSpan.transition), JSON.stringify(rmSpan));
+  check('reduced motion: headline reveals do not translate (opacity feedback stays)',
+    Math.abs(rmSpan.ty) < 0.5 && /opacity/.test(rmSpan.transition), JSON.stringify(rmSpan));
   let rmStage = false;
   for (let i = 0; i < 90 && !rmStage; i++) {
     await page.waitForTimeout(2000);

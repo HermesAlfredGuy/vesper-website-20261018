@@ -230,8 +230,8 @@ body.is-dragging ::selection{background:transparent}
 .atmos__b{grid-column:2/-1;font-size:13.5px;line-height:1.55;color:var(--fg-dim);max-width:40ch}
 .atmos__row[aria-pressed="true"] .atmos__n{color:var(--emission)}
 .macrocap{
-  align-self:end;justify-self:end;max-width:34ch;margin:0;text-align:right;
-  font-family:'IBM Plex Mono';font-size:10.5px;line-height:1.7;letter-spacing:.04em;color:var(--fg-dim);
+  align-self:end;justify-self:end;max-width:34ch;margin:0 0 clamp(96px,15vh,180px);text-align:right;
+  font-family:'IBM Plex Mono';font-size:10.5px;line-height:1.7;letter-spacing:.04em;color:color-mix(in srgb,var(--fg) 74%,transparent);
 }
 .macrocap span{display:block;color:var(--fg);letter-spacing:.18em;text-transform:uppercase;font-size:9.5px;margin-bottom:6px}
 
