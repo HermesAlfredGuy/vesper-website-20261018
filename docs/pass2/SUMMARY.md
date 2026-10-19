@@ -12,8 +12,7 @@ lumpy 30-gon.
 **Seam.** The glow sat in a 0.9 mm arc — one pixel, which is why intensity 0.45→1.85 moved
 the groove less than one count. Replaced with geometry: a 4.8 mm opal tube on the helix,
 3.4 mm under the surface, occluded by the lips through the depth test; emissive is now only
-a bounce. Spill: gain ramp removed, blur 0.008→0.005, knee 1.05→0.45 so the band keeps an
-edge instead of flattening into a pool.
+a bounce. Spill: gain ramp removed, blur 0.008→0.005, knee 1.05→0.45.
 
 **Overflow.** Two `::before` scrims bleeding `--pad/2`; pinned to the viewport, blanket
 `overflow-x: hidden` deleted. 360/390/414 px clean.
