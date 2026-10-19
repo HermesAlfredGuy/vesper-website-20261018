@@ -18,3 +18,5 @@ tools/package-lock.json
 
 # authoring intermediates: reproducible from tools/asset/*.py
 assets/asset/
+__pycache__/
+*.pyc

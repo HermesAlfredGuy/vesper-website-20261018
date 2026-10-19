@@ -48,7 +48,10 @@ One 2048² set, one non-overlapping UV island per object:
 - **Base colour**, normalised, no seam, no gradient.
 
 Packing happens in PIL outside Blender: doing it inside Blender's Python was killing the
-process. Export is glTF with WebP q92 — **6.0 MB**, 107,789 tris, 16-bit indices per mesh.
+process. Export is glTF with the maps **lossless PNG** — **6.0 MB**, 107,789 tris, 16-bit indices
+per mesh. Blender's exporter would take WebP at q92 and save ~4 MB, but `export_image_quality`
+applies to every image at once, so the normal map would go lossy with the rest; blocking in a 3°
+normal field on a hero surface is not a trade worth 4 MB here.
 
 ## Integration — `js/scene3d.js`
 
