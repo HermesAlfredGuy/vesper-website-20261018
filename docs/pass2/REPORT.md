@@ -167,4 +167,4 @@ without one.
 
 Files touched: `js/scene3d.js`, `js/main.js`, `css/site.css`, plus
 `tools/{finish-test,perf-one,perf-frames,interaction-film,silhouette.html,shot,probe-shot,ablate,overflow-*}.mjs`
-and `tools/silhouette.py`; `docs/pass2/DIAGNOSIS.md` (this pass's diagnosis) and this file.
+`docs/pass2/DIAGNOSIS.md` (this pass's diagnosis) and this file.
