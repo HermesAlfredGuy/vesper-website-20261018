@@ -15,3 +15,6 @@ tools/package-lock.json
 
 # delivered archive
 *-src.zip
+
+# authoring intermediates: reproducible from tools/asset/*.py
+assets/asset/
