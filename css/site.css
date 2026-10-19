@@ -182,10 +182,14 @@ body.is-tone-dark .btn--solid{color:var(--ink)}
    edge of the turn row (x 400–683), clear of the dock's band (x 795+). */
 @media (min-width:1100px){.sec--hero .turn__hint{flex-basis:100%;max-width:330px;text-align:left;margin-right:auto}}
 .sec--hero{min-height:100svh;display:flex;flex-direction:column;justify-content:center;padding-top:16svh}
-body.is-dragging{cursor:ew-resize}
+/* Dragging the object is a real gesture, so the pointer has to say so before the
+   user tries it. `ew-resize` reads as "this is a handle you resize", which is the wrong
+   promise; grab/grabbing is the standard for "pick this up and turn it". */
+body.is-dragging,body.is-dragging .sec--hero{cursor:grabbing}
 body.is-dragging ::selection{background:transparent}
-.sec--hero{cursor:ew-resize}
+.sec--hero{cursor:grab}
 .sec--hero .copy,.sec--hero .turn,.sec--hero .herofoot{cursor:auto}
+.sec--hero:active{cursor:grabbing}
 .sec:not(.sec--hero){min-height:min(96svh,940px);display:flex;align-items:center;padding:14svh 0 18svh}
 
 .kicker{

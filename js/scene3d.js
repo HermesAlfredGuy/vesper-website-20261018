@@ -658,15 +658,35 @@ export function createStage(canvasEl, opts = {}) {
 
   /* Compile the scene's programs without freezing the page. On a software rasteriser
      (or a weak integrated GPU) shader compilation is the single biggest first-frame
-     cost; compileAsync does it in chunks and yields between them. */
+     cost; compileAsync does it in chunks and yields between them.
+
+     The fallback used to be one synchronous renderer.compile(): measured at 10.0 s in
+     a single uninterruptible task, which is the whole of "it lags severely on first
+     load" — the still is painted, but the thread is inside the compiler and the page
+     answers nothing. There is no frame loop running yet at this point, so hiding all
+     but one mesh compiles that mesh's programs alone and cannot flash. */
   async function compile() {
+    const toMain = () => new Promise((r) => {
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(() => r(), { timeout: 120 });
+      else setTimeout(r, 0);
+    });
     try {
-      const gl = renderer.getContext();
-      const parallel = gl && typeof gl.getExtension === 'function' && gl.getExtension('KHR_parallel_shader_compile');
-      if (parallel && typeof renderer.compileAsync === 'function') await renderer.compileAsync(scene, camera);
-      else renderer.compile(scene, camera);
+      /* compileAsync is not the answer here: it calls this.compile() synchronously
+         first and only polls for the *link* afterwards, so the front-end cost stays in
+         one task. Compile one mesh per task instead: the program cache means shared
+         programs are built once, and the next task can paint and take input. No frame
+         loop is running yet, so hiding the others cannot flash. */
+      const list = [];
+      scene.traverse((o) => { if (o.isMesh && o.visible) list.push(o); });
+      for (let i = 0; i < list.length; i++) {
+        list.forEach((o, n) => { o.visible = n === i; });
+        try { renderer.compile(scene, camera); } catch (e) { /* first update() finishes it */ }
+        await toMain();
+      }
+      list.forEach((o) => { o.visible = true; });
     } catch (e) { /* the first update() will compile what is left */ }
   }
+
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1.6, 0.02, 16);
@@ -684,6 +704,7 @@ export function createStage(canvasEl, opts = {}) {
 
   /* room */
   const plaster = plasterMaps();
+  if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:t-plaster');
   const wallMat = new THREE.MeshStandardMaterial({
     color: 0xb9b3a8, roughness: 0.98, metalness: 0.0,
     map: plaster.map, bumpMap: plaster.bumpMap, bumpScale: 0.55,
@@ -799,7 +820,7 @@ export function createStage(canvasEl, opts = {}) {
   const key = new THREE.DirectionalLight(0xf6f8fa, 1.25);
   key.position.set(-1.25, 1.95, 1.15);
   key.castShadow = true;
-  key.shadow.mapSize.set(4096, 4096);
+  key.shadow.mapSize.set(2048, 2048);   // 4096 was a 16 M-texel depth pass for a 1.1 m frustum
   key.shadow.camera.left = -0.55;
   key.shadow.camera.right = 0.55;
   key.shadow.camera.top = 0.60;
@@ -833,6 +854,7 @@ export function createStage(canvasEl, opts = {}) {
   scene.add(group);
 
   const bodyGeo = shellGeometry();
+  if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:t-shell');
   const brushed = brushedNormal();
   const bodyMat = channelify(new THREE.MeshStandardMaterial({
     // starts where the Foundry finish sits, so the first frame is not a different material
@@ -960,8 +982,36 @@ export function createStage(canvasEl, opts = {}) {
   };
   const tmp = new THREE.Color();
 
-  function setFinish(id) { state.finishTarget = FINISHES.find((f) => f.id === id) || FINISHES[0]; }
-  function setAtmosphere(id) { state.atmoTarget = ATMOSPHERES.find((a) => a.id === id) || ATMOSPHERES[1]; }
+  function setFinish(id) {
+    state.finishTarget = FINISHES.find((f) => f.id === id) || FINISHES[0];
+    /* Before the first frame there is no loop to cross-fade and the poster is still on
+       screen, so snap: a finish chosen during load must be the finish the first painted
+       frame shows. set(), not copy(): these palette entries are hex numbers and copy()
+       would write NaN into the material. */
+    if (!hasRendered) {
+      bodyMat.color.set(state.finishTarget.color);
+      bodyMat.metalness = state.finishTarget.metalness;
+      bodyMat.roughness = state.finishTarget.roughness;
+      bodyMat.envMapIntensity = state.finishTarget.env;
+      plinthMat.color.copy(bodyMat.color);
+      plinthMat.metalness = bodyMat.metalness;
+      plinthMat.roughness = bodyMat.roughness;
+      plinthMat.envMapIntensity = bodyMat.envMapIntensity;
+      state.finish = state.finishTarget;
+    }
+  }
+  function setAtmosphere(id) {
+    state.atmoTarget = ATMOSPHERES.find((a) => a.id === id) || ATMOSPHERES[1];
+    if (!hasRendered) {
+      coreMat.emissive.set(state.atmoTarget.color);
+      wallSpillMat.uniforms.uColor.value.set(state.atmoTarget.spill);
+      floorPoolMat.uniforms.uColor.value.set(state.atmoTarget.spill);
+      seamLight.color.set(state.atmoTarget.color);
+      slotLight.color.set(state.atmoTarget.color);
+      slotLightLow.color.set(state.atmoTarget.color);
+      state.atmosphere = state.atmoTarget;
+    }
+  }
   function setOrbit(rad) { state.targetOrbit = rad; }
   function setIntensity(v) { state.targetIntensity = Math.max(0, Math.min(1, v)); }
   function setMood(v) { state.targetMood = Math.max(0, Math.min(1, v)); }
@@ -1010,13 +1060,40 @@ export function createStage(canvasEl, opts = {}) {
     }
   }
 
+  /* Is the scene still moving? The renderer suspends itself when nothing changes, which
+     is the only reason an idle page is cheap — but it must also be the reason a finish
+     change finishes. Without this the loop stopped mid-cross-fade, so the button lit up
+     and the object kept the old colour until the next scroll. */
+  const nearColor = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) < 4e-3;
+  function isSettled() {
+    const ft = state.finishTarget, at = state.atmoTarget;
+    return (
+      Math.abs(state.targetOrbit - state.orbit) < 1e-4 &&
+      Math.abs(state.targetIntensity - state.intensity) < 1e-4 &&
+      Math.abs(state.targetMood - state.mood) < 1e-4 &&
+      nearColor(bodyMat.color, _fc.set(ft.color)) &&
+      Math.abs(bodyMat.roughness - ft.roughness) < 2e-3 &&
+      Math.abs(bodyMat.metalness - ft.metalness) < 2e-3 &&
+      Math.abs(bodyMat.envMapIntensity - ft.env) < 4e-3 &&
+      nearColor(coreMat.emissive, _fc.set(at.color)) &&
+      state.camera.pos.distanceToSquared(state.targetCam.pos) < 1e-8 &&
+      state.camera.target.distanceToSquared(state.targetCam.target) < 1e-8
+    );
+  }
+  const _fc = new THREE.Color();
+
   let t = 0;
   let instant = false;
+  let hasRendered = false;      // true once update() has drawn a frame; used by the setters above
   function settle() { instant = true; }      // jump every damped value to its target (tests, deep links)
   function update(dtIn, reduced = false) {
     // a bad frame delta (negative, NaN, long stall) must never blow up the damping
     let dt = Number.isFinite(dtIn) ? Math.max(0, Math.min(0.05, dtIn)) : 0;
     if (dt === 0) dt = 0.0001;
+    /* real elapsed time for anything with no physics in it: capped so a resumed tab
+       does not jump, but 5x the motion clamp so a slow frame still converges in real
+       seconds rather than in frames */
+    const dtReal = Number.isFinite(dtIn) ? Math.min(0.25, Math.max(0.0001, dtIn)) : 0.016;
     t += dt;
     const k = (tau) => (instant ? 1 : Math.min(1, Math.max(0, 1 - Math.exp(-dt / tau))));
 
@@ -1034,9 +1111,23 @@ export function createStage(canvasEl, opts = {}) {
     camera.lookAt(cam.target);
     camera.updateProjectionMatrix();
 
+    /* Finish and atmosphere cross-fades are material properties, not motion: they
+       are stable at any dt, so they must run on real time rather than on the clamped
+       motion dt. With the clamp at 50 ms a machine drawing at 4 fps took six times
+       longer in wall-clock to reach the colour the button had already reported. */
+    const kReal = (tau) => {
+      const v = instant ? 1 : 1 - Math.exp(-dtReal / tau);
+      return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+    };
+
     /* finish */
     const ft = state.finishTarget;
-    const fl = k(0.18);
+    const fl = kReal(0.18);
+    /* a single NaN in a colour is permanent — lerp() spreads it to every channel on
+       every later frame — so recover instead of rendering a black object */
+    if (!Number.isFinite(bodyMat.color.r) || !Number.isFinite(bodyMat.color.g) || !Number.isFinite(bodyMat.color.b)) {
+      bodyMat.color.set(ft.color); bodyMat.metalness = ft.metalness; bodyMat.roughness = ft.roughness;
+    }
     state.finish = ft;
     bodyMat.color.lerp(tmp.set(ft.color), fl);
     bodyMat.metalness += (ft.metalness - bodyMat.metalness) * fl;
@@ -1049,7 +1140,7 @@ export function createStage(canvasEl, opts = {}) {
 
     /* atmosphere */
     const at = state.atmoTarget;
-    const al = k(0.2);
+    const al = kReal(0.2);
     state.atmosphere = at;
     coreMat.emissive.lerp(tmp.set(at.color), al);
     seamLight.color.lerp(tmp.set(at.color), al);
@@ -1130,11 +1221,17 @@ export function createStage(canvasEl, opts = {}) {
     if (!reduced) group.position.y = Math.sin(t * 0.5) * 0.0009;
 
     renderer.render(scene, camera);
+    hasRendered = true;
     instant = false;
   }
 
   function resize(w, h) {
     if (!w || !h) return;
+    /* A pixel budget, not just a device-pixel-ratio cap. A 1440p viewport on a 2×
+       display is 5.2 M pixels before the 4× multisample buffer: that is where the
+       steady-state cost goes on a laptop GPU that is otherwise idle. Cap the drawing
+       buffer at ~2.4 M pixels and keep the CSS size; above that the extra pixels buy
+       nothing at normal viewing distance. */
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -1243,7 +1340,7 @@ export function createStage(canvasEl, opts = {}) {
 
   return {
     scene, camera, renderer, group, body, bodyMat, plinthMat, coreMat, opal, state,
-    update, resize, compile, dispose: () => renderer.dispose(),
+    update, resize, compile, dispose: () => renderer.dispose(), isSettled,
     setFinish, setAtmosphere, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle,
     objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => ringStack().length,
     CHANNEL, outerRadius,

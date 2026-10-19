@@ -393,7 +393,11 @@ let last = performance.now();
 let lastRender = 0;
 let dirty = true;
 let idleFrames = 0;
-const MIN_FRAME_MS = 32;                     // ~30 fps is plenty for this scene and half the cost
+const MIN_FRAME_MS = 16.7;                  // 60 fps target: a 30 fps cap is visible on a
+                                            // machine that can afford the frame, and the cost
+                                            // of one frame here is ~1.5 ms even in software
+let slowFrames = 0;                         // and it steps back down if the machine cannot hold it
+let frameBudget = MIN_FRAME_MS;
 const prev = { pos: [0, 0, 0], target: [0, 0, 0], mood: 0, int: 0, orbit: 0 };
 
 function drawProgress() {
@@ -405,7 +409,9 @@ function drawProgress() {
 function frame(now) {
   const raw = (now - last) / 1000;
   last = now;
-  const dt = clamp(Number.isFinite(raw) ? raw : 0.016, 0, 0.05);
+  const dt = clamp(Number.isFinite(raw) ? raw : 0.016, 0, 0.25);   // scene3d clamps motion
+                                                                   // itself at 50 ms; material
+                                                                   // cross-fades need real time
   /* The scroll event is a task on the main thread, and a WebGL frame here can take a
      second: while the thread is inside a frame the event waits, and any reader of the
      state (a screenshot, an audit, a person who scrolled and stopped) sees the previous
@@ -413,8 +419,12 @@ function frame(now) {
      whatever the event loop is doing; it is a few class toggles. */
   if (window.scrollY !== syncY) { syncY = window.scrollY; syncChapter(); }
 
-  if (stage && now - lastRender >= MIN_FRAME_MS) {
+  if (stage && now - lastRender >= frameBudget) {
     lastRender = now;
+    /* Adaptive frame budget: aim at 60 fps, but if the frames we are actually
+       producing cost more than 20 ms, halve the rate instead of asking for a frame
+       the machine cannot afford — a steady 30 is smooth, an uneven 45 is not. */
+    const drewAt = performance.now();
     const center = window.scrollY + window.innerHeight / 2;
     const s = sampleStops(center);
 
@@ -429,7 +439,7 @@ function frame(now) {
     if (camChanged) { dirty = true; idleFrames = 0; }
     else idleFrames++;
 
-    if (dirty || idleFrames < 90) {
+    if (dirty || idleFrames < 90 || (stage && !stage.isSettled())) {
       stage.paceCamera(s.pos, s.target, s.fov);
       stage.setMood(s.mood);
       stage.setIntensity(targetInt);
@@ -438,6 +448,13 @@ function frame(now) {
     }
     prev.pos = s.pos; prev.target = s.target; prev.mood = s.mood;
     prev.int = targetInt; prev.orbit = state.orbit;
+
+    /* measure what the frame actually cost, not the gap between frames: the gap
+       includes idle waiting and would never fall back on a rested machine */
+    if (performance.now() - drewAt > 18) slowFrames++;
+    else slowFrames = Math.max(0, slowFrames - 1);
+    if (slowFrames > 45) frameBudget = MIN_FRAME_MS * 2;
+    else if (slowFrames === 0) frameBudget = MIN_FRAME_MS;
   } else if (!stage) {
     drawProgress();
   }
