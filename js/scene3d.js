@@ -80,17 +80,60 @@ function plasterMaps() {
   return { map, bumpMap };
 }
 
-function blastMap() {
-  const S = 256;
+/* The grain, in two parts, because cast-and-blasted aluminium has two.
+   A bead blast alone is isotropic noise: under a softbox it returns a soft glow, and a
+   soft glow is exactly what plastic returns. What says *metal* is the directional part —
+   fine tool marks running one way round the body, which stretch the highlight along that
+   direction instead of smearing it into a sheen. So: a lathe-turned line pattern (varying
+   fast across the height, constant round the circumference) under a little blast, written
+   out as a tangent-space normal map with the derivative computed here rather than guessed
+   from a canvas height-to-bump conversion. */
+function brushedNormal() {
+  const S = 512;
+  const h = new Float32Array(S * S);
+  // fine circumferential tool marks: one stripe every ~2 px, with a slow wobble so they
+  // never read as a printed screen
+  for (let y = 0; y < S; y++) {
+    const wob = Math.sin((y / S) * TAU * 3) * 0.6;
+    for (let x = 0; x < S; x++) {
+      const n = Math.random() - 0.5;                       // bead blast
+      const line = Math.sin((y / S) * TAU * 78 + wob + x * 0.0006);
+      h[y * S + x] = line * 0.55 + n * 0.85;
+    }
+  }
+  // a light blur so the blast is grain and not per-pixel salt
+  const b = new Float32Array(S * S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      let acc = 0;
+      for (let k = -1; k <= 1; k++) acc += h[y * S + ((x + k + S) % S)];
+      b[y * S + x] = acc / 3;
+    }
+  }
   const c = canvas(S);
   const g = c.getContext('2d');
-  g.fillStyle = '#808080';
-  g.fillRect(0, 0, S, S);
-  valueNoise(g, S, S, 180, 0.30, 'overlay');
-  valueNoise(g, S, S, 380, 0.16, 'overlay');
+  const img = g.createImageData(S, S);
+  const k = 0.55;                                          // slope: strong enough to bend the highlight
+  for (let y = 0; y < S; y++) {
+    const yp = ((y + 1) % S) * S, ym = ((y - 1 + S) % S) * S;
+    for (let x = 0; x < S; x++) {
+      const dx = (b[y * S + ((x + 1) % S)] - b[y * S + ((x - 1 + S) % S)]) * k;
+      const dy = (b[yp + x] - b[ym + x]) * k;
+      const nz = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+      const o = (y * S + x) * 4;
+      img.data[o] = Math.round((-dx * nz * 0.5 + 0.5) * 255);
+      img.data[o + 1] = Math.round((-dy * nz * 0.5 + 0.5) * 255);
+      img.data[o + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+      img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(13, 13);
+  // u runs round the body (the tool marks are lines of constant v, so the clustered
+  // angular samples do not smear them), v runs up it
+  t.repeat.set(3, 26);
+  t.anisotropy = 4;
   return t;
 }
 
@@ -106,6 +149,32 @@ function radialTexture(inner, mid) {
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
   return new THREE.CanvasTexture(c);
+}
+
+/* A contact shadow is not a dark disc under an object: under the object you cannot see
+   anything. What you see is the 30 mm *outside* its foot, where the light that would have
+   reached the floor is blocked by a body standing on it — so the darkness has to peak at
+   the rim of the base and fall away from it with a penumbra. The old gradient peaked at
+   the centre, which put its densest part under the plinth where it was hidden, and its
+   faintest part where the eye looks. That is a shadow with no contact in it.
+   `knee` is where the strongest darkness sits, as a fraction of the plane's radius. */
+function contactTexture(knee = 0.58, peak = 0.95) {
+  const S = 384;
+  const c = canvas(S);
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0, `rgba(255,255,255,${peak})`);
+  grad.addColorStop(knee - 0.07, `rgba(255,255,255,${peak * 0.96})`);
+  grad.addColorStop(knee, `rgba(255,255,255,${peak * 0.74})`);
+  grad.addColorStop(knee + 0.13, `rgba(255,255,255,${peak * 0.34})`);
+  grad.addColorStop(knee + 0.27, 'rgba(255,255,255,0.11)');
+  grad.addColorStop(0.97, 'rgba(255,255,255,0.02)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
 }
 
 function envTexture() {
@@ -148,7 +217,7 @@ function studioEnvironment(renderer) {
     return m;
   };
   // key softbox overhead-front: neutral, and the single strongest shape the metal mirrors
-  panel(6, 4, new THREE.Color(3.6, 3.62, 3.66), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]);
+  panel(6, 4, new THREE.Color(5.4, 5.44, 5.5), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]);
   // narrow bright strip on the right, cooler — the long vertical specular
   panel(0.9, 3.4, new THREE.Color(1.55, 1.68, 1.86), [3.4, 1.5, 1.4], [0, -Math.PI / 2, 0]);
   // matching strip on the left, neutral and weaker, so the body has two edges
@@ -156,7 +225,13 @@ function studioEnvironment(renderer) {
   // a broad soft panel overhead — the softbox. A narrow strip reflects into one
   // thin specular; a *large* source is what a matte metal actually returns, and it
   // is the difference between a grey column and a black one.
-  panel(4.6, 4.6, new THREE.Color(1.42, 1.44, 1.48), [0.4, 5.0, 0.7], [-Math.PI / 2, 0, 0]);
+  panel(4.6, 4.6, new THREE.Color(2.25, 2.28, 2.34), [0.4, 5.0, 0.7], [-Math.PI / 2, 0, 0]);
+  // Pass 3c ─ a large neutral card on the camera side. In a warm room every reflection is
+  // amber, so a metal's mid-tone goes brown whatever its albedo says; the only way an
+  // aluminium body keeps a grey mid-tone in an amber room is a big neutral source where it
+  // actually looks. This is a bounce card, not a new lamp in the room: it exists only in the
+  // reflection environment, so it does not flatten the visible lighting.
+  panel(6.2, 7.2, new THREE.Color(3.30, 3.42, 3.58), [0.15, 1.5, 5.0], [0, Math.PI, 0]);
   // a dim, wide back wall so the metal has structure behind it instead of a void
   panel(9, 5, new THREE.Color(0.30, 0.305, 0.315), [0, 1.4, -5.8], [0, 0, 0]);
   // dark floor bounce
@@ -210,10 +285,10 @@ export const CHANNEL = {
   yMax: 0.286,
   aperture: 0.0090,   // 9 mm across the lips
   depth: 0.0050,      // 5 mm down to the opal diffuser, inside the 7.2 mm wall
-  floorEnd: 0.72,     // of the half-aperture: flat machined floor out to here ..
-  wallEnd: 0.92,      // .. then the wall rises back to the outer radius
-  break: 0.0006,      // 0.6 mm edge break on each lip
-  opalEnd: 0.28,      // of the half-aperture: the diffuser is a line, not a floor
+  floorEnd: 0.52,     // of the half-aperture: flat machined floor out to here ..
+  wallEnd: 0.80,      // .. then a straight wall up to the lip chamfer
+  break: 0.0011,      // 1.1 mm 45 deg chamfer on each lip: an edge break, not a round-over
+  opalEnd: 0.26,      // of the half-aperture: the diffuser is a line, not a floor
 };
 const CH_HALF = CHANNEL.aperture / 2;
 const CH_OUT = 9.0;   // sentinel: this vertex is nowhere near the channel
@@ -232,17 +307,21 @@ function channelHalf(y) {
   const run = Math.min(1, Math.min(tt, 1 - tt) / 0.014);
   return CH_HALF * (0.58 + 0.42 * run);
 }
-/** how far the surface is cut below the outer radius at a given offset */
+/** How far the surface is cut below the outer radius at a given offset.
+    Four straight facets, because a cutter leaves straight facets: a flat floor, a steep
+    wall, a 45 degree chamfer, and the untouched shoulder. The previous version eased the
+    wall with a smoothstep, which is the one profile that reflects like a groove *milled
+    in clay* — no crisp line anywhere along it. */
 function slotCut(f) {
   const a = Math.abs(f);
   if (a <= CHANNEL.floorEnd) return CHANNEL.depth;
   if (a <= CHANNEL.wallEnd) {
     const u = (a - CHANNEL.floorEnd) / (CHANNEL.wallEnd - CHANNEL.floorEnd);
-    return CHANNEL.depth - (CHANNEL.depth - CHANNEL.break) * (u * u * (3 - 2 * u));
+    return CHANNEL.depth + (CHANNEL.break - CHANNEL.depth) * u;      // straight wall
   }
   if (a < 1) {
     const u = (a - CHANNEL.wallEnd) / (1 - CHANNEL.wallEnd);
-    return CHANNEL.break * (1 - (u * u * (3 - 2 * u)));
+    return CHANNEL.break * (1 - u);                                  // 45 deg lip chamfer
   }
   return 0;
 }
@@ -254,7 +333,8 @@ function slotCut(f) {
    same in every ring, so the parametrisation follows the helix and the mesh stays a
    regular grid. */
 
-const RING_DENSE = 40;
+const RING_DENSE = 64;       // across the channel: ~0.25 mm per sample, so the 1.1 mm
+                             // chamfer is three samples wide and reads as a facet
 const RING_UNIFORM = 200;
 const DENSE_HALF = 0.095;    // radians either side of the channel centre
 
@@ -333,14 +413,21 @@ function shellGeometry() {
 }
 
 /* ---------- what the channel emits ----------
-   The diffuser is a source, so it is emission — but it is emission *inside a slot*,
-   masked by the offset across the groove that the geometry already carries. No
-   aspect of the aperture's shape is decided here. */
+   The diffuser is a source, so it is emission — but it is emission *inside a slot*, and a
+   slot is a small hole with a big lip. Two things follow, and neither of them is a stripe:
+   the glow is gated by whether the camera can actually see down the hole, and the metal
+   around it is occluded by the same hole. Both are computed here from the geometry that
+   the vertex buffer already carries, so the light cannot disagree with the shape. */
 
 const CH = {
   uGlowColor: { value: new THREE.Color(0xffb464) },
   uGlow: { value: 1 },
   uOpalEnd: { value: CHANNEL.opalEnd },
+  // where the direction of the key is, in the object's own frame (a uniform, not a constant:
+  // the object turns, the room does not, and the shadowed wall has to change sides with it)
+  uKeyLocal: { value: new THREE.Vector3(-0.60, 0.77, 0.55) },
+  // half-aperture over depth: the slope of the escape cone out of the slot
+  uSlotRatio: { value: (CHANNEL.aperture / 2) / CHANNEL.depth },
 };
 
 function channelify(material) {
@@ -348,49 +435,75 @@ function channelify(material) {
     shader.uniforms.uGlowColor = CH.uGlowColor;
     shader.uniforms.uGlow = CH.uGlow;
     shader.uniforms.uOpalEnd = CH.uOpalEnd;
-    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\n' + shader.vertexShader.replace(
+    shader.uniforms.uKeyLocal = CH.uKeyLocal;
+    shader.uniforms.uSlotRatio = CH.uSlotRatio;
+    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\nvarying vec3 vLocal;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGroove = aGroove;'
+      '#include <begin_vertex>\n  vGroove = aGroove;\n  vLocal = position;'
     );
     shader.fragmentShader = [
       'varying float vGroove;',
+      'varying vec3 vLocal;',
       'uniform vec3 uGlowColor; uniform float uGlow; uniform float uOpalEnd;',
+      'uniform vec3 uKeyLocal; uniform float uSlotRatio;',
       shader.fragmentShader
+        /* the profile of the cut, as shading: how deep this fragment sits, and which of
+           the two walls it is on. The depth comes from the same four facets slotCut()
+           puts into the mesh, so the dark band and the geometry cannot drift apart. */
         .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
           float vAbs = abs(vGroove);
-          // Inside the cut the surface is raw machined metal in its own shadow: the
-          // outer light cannot reach it. Darkening it is honest, but the *shape* of the
-          // darkening is what draws the recess — flat across the floor, ramping up the
-          // walls — so this is a profile, not a wash.
-          float vIn = smoothstep(0.06, 0.26, vAbs) * (1.0 - smoothstep(0.86, 1.02, vAbs));
-          diffuseColor.rgb *= mix(1.0, 0.16, vIn);
-          // the lip throws its own shadow onto the body just outside the cut. Without
-          // it the shoulders of the channel sit at exactly the same value as the rest
-          // of the column and the whole thing flattens into a stripe.
-          float vSpill = exp(-pow((vAbs - 1.34) / 0.30, 2.0));
-          diffuseColor.rgb *= (1.0 - 0.38 * vSpill);
+          float vAA = max(fwidth(vGroove) * 1.5, 0.004);
+          float vDeep = vAbs < 0.80
+            ? mix(1.0, 0.22, smoothstep(0.52 - vAA, 0.80 + vAA, vAbs))
+            : 0.22 * (1.0 - smoothstep(0.80 - vAA, 1.0 + vAA, vAbs));
+          // the two walls do not take the same light. The one whose face turns toward the
+          // key is lit; the one turning away sits in the far lip's shadow. Read off
+          // uKeyLocal, so it flips as the object turns instead of being baked left/right.
+          vec3 vAcross = normalize(vec3(-vLocal.z, 0.0, vLocal.x) + vec3(1e-5));
+          float vFacing = dot(-sign(vGroove) * vAcross, uKeyLocal);
+          float vWall = smoothstep(0.50, 0.62, vAbs);
+          float vWallLight = mix(1.0, mix(0.30, 1.0, clamp(vFacing * 0.5 + 0.5, 0.0, 1.0)), vWall);
+          // depth occlusion, measured off the waist of the profile: 0.12 on the floor
+          // (it sees one wall and one lip), near 1 at the lip
+          float vOcc = mix(0.12, 0.97, pow(1.0 - vDeep, 0.85)) * vWallLight;
+          // the shoulder immediately outside the lip sits in the chamfer's shadow
+          float vShoulder = exp(-pow((vAbs - 1.12) / 0.17, 2.0));
+          diffuseColor.rgb *= (1.0 - 0.40 * vShoulder);
         `)
         .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
-          // machined, not polished: a mirror inside the slot just returns the room again
-          roughnessFactor = mix(roughnessFactor, 0.52, vIn);
+          // the floor is machined, the wall is machined, and the 1.1 mm chamfer is the
+          // facet the cutter polished: that difference in roughness is the crisp line
+          // along the edge. A single roughness for the whole slot has no edge, only a dip.
+          float vCutW = 1.0 - smoothstep(0.99, 1.03, vAbs);
+          float vRough = vAbs < 0.80 ? 0.54 : mix(0.54, 0.16, smoothstep(0.80, 0.94, vAbs));
+          roughnessFactor = mix(roughnessFactor, vRough, vCutW);
         `)
         .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
-          // and it is occluded metal, so it stops mirroring the warm room back out
-          metalnessFactor = mix(metalnessFactor, 0.30, vIn);
+          // occluded metal: inside the cut it stops mirroring the warm room back out
+          metalnessFactor = mix(metalnessFactor, 0.42, vCutW * (1.0 - 0.5 * smoothstep(0.52, 0.80, vAbs)));
+        `)
+        .replace('#include <aomap_fragment>', /* glsl */`#include <aomap_fragment>
+          // occlusion on a *metal* has to reach the specular, not the albedo: multiplying
+          // the diffuse term of a metalness-1 surface darkens nothing at all
+          reflectedLight.indirectDiffuse *= vOcc;
+          reflectedLight.indirectSpecular *= vOcc;
+          reflectedLight.directDiffuse *= mix(1.0, vOcc, 0.6);
+          reflectedLight.directSpecular *= mix(1.0, vOcc, 0.85);
         `)
         .replace('#include <emissivemap_fragment>', /* glsl */`#include <emissivemap_fragment>
-          // the opal diffuser, a line at the bottom of the slot rather than a lit floor:
-          // 9 mm of glowing floor reads as a stripe, 1.5 mm of glowing line reads as
-          // light inside a gap
-          float vOpal = 1.0 - smoothstep(uOpalEnd - 0.13, uOpalEnd + 0.07, vAbs);
-          totalEmissiveRadiance += uGlowColor * uGlow * pow(vOpal, 1.0);
-          // the 0.6 mm chamfer on each lip, and nothing else: a hairline, not a wash
-          float vLip = exp(-pow((vAbs - 1.02) / 0.085, 2.0));
-          totalEmissiveRadiance += uGlowColor * uGlow * 0.16 * vLip;
+          // the opal diffuser, a line at the bottom of the slot. Gated by the escape cone:
+          // 9 mm of glowing floor would read as a stripe, and a strip that glows at the
+          // silhouette would read as a wire lying on the surface, which is the whole bug.
+          float vOpal = 1.0 - smoothstep(uOpalEnd - 0.12, uOpalEnd + 0.06, vAbs);
+          vec3 vDir = normalize(vViewPosition);
+          float vCos = abs(dot(vDir, normal));
+          float vTan = sqrt(max(0.0, 1.0 - vCos * vCos)) / max(vCos, 0.06);
+          float vEsc = 1.0 - smoothstep(uSlotRatio * 0.55, uSlotRatio * 1.10, vTan);
+          totalEmissiveRadiance += uGlowColor * uGlow * vOpal * vEsc * (1.0 - 0.35 * vWall);
         `),
     ].join('\n');
   };
-  material.customProgramCacheKey = () => 'vesper-channel-v1';
+  material.customProgramCacheKey = () => 'vesper-channel-v3';
   return material;
 }
 
@@ -402,7 +515,9 @@ function channelify(material) {
    because the seam turns with the object, and it goes dark directly beneath the
    base because that is where nothing can see the slot. */
 
-const SPILL_SAMPLES = 8;      // one sample per ~52° of the helix: enough to read as a band, cheap enough for a phone
+const SPILL_SAMPLES = 20;     // one sample per 18 deg of the helix: a line, not a halo.
+                              // Eight segments is a ring of eight arcs, and eight arcs add
+                              // up to a pool with no direction in it.
 
 const spillVert = /* glsl */`
   varying vec3 vWorld;
@@ -419,8 +534,8 @@ uniform vec3 uColor;
 uniform float uPower;
 uniform vec3 uNormal;          // the surface receiving the light
 uniform vec3 uA[K];            // the slot as K segments of the helix, world space
-uniform vec3 uB[K];            // (segments, not points: eight points make a halo on the
-uniform vec3 uNorm[K];         //  wall, eight segments make a band that follows it)
+uniform vec3 uB[K];            // (segments, not points: twenty points make a halo on the
+uniform vec3 uNorm[K];         //  wall, twenty segments make a band that follows it)
 uniform float uGain[K];
 uniform float uCut2;           // squared radius past which nothing can be lit
 uniform sampler2D uGrain;
@@ -442,17 +557,20 @@ void main() {
     vec3 dn = d * inversesqrt(d2);
     float cosE = dot(dn, uNorm[k]);        // does the slot face the point at all
     float cosS = -dot(dn, uNormal);        // and does the point face the slot
-    float r = sqrt(d2) + 0.024;            // a frosted line, but a narrow one: a wide
-                                            // blur radius turns any line source into a
-                                            // smooth pool and throws the helix away
+    float r = sqrt(d2) + 0.011;            // a frosted line, but a narrow one: the blur is
+                                            // the slot's own width. Anything wider turns a
+                                            // line source into a pool and throws the helix away
     // a *line* source falls off as 1/r, not 1/r²: that is the difference between a band
     // of light on the wall and a saturated blob, and it is why uPower stays small
-    energy += smoothstep(0.05, 0.60, cosE) * max(cosS, 0.0) * uGain[k] / r;
+    energy += smoothstep(0.22, 0.82, cosE) * max(cosS, 0.0) * uGain[k] / r;
   }
 
   float grain = texture2D(uGrain, vWorld.xz * 1.6 + vWorld.y * 0.5).r;
   energy *= mix(0.90, 1.07, grain);
   vec3 col = uColor * energy * uPower;
+  // a knee, so the core of the band cannot clip: the pattern survives the highlight
+  // instead of turning into a white hole with a warm rim
+  col = col / (1.0 + 1.05 * col);
   col += (hash(gl_FragCoord.xy) - 0.5) * (1.5 / 255.0);   // no banding in the falloff
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }
@@ -581,38 +699,41 @@ export function createStage(canvasEl, opts = {}) {
   floorPool.renderOrder = 0;
   scene.add(floorPool);
 
-  /* contact: the object is standing on a floor, so it has to sit on one. A tight
-     core plus a wider soft ellipse, both drawn over the spill so the light that the
-     slot throws at the base is occluded by the thing that is standing there. */
+  /* contact: the plinth is 196 mm across (242 mm in x, because the plan is an oval), so
+     the strongest darkness belongs just outside that foot, with a penumbra thrown to the
+     right and back — away from a key that stands up-front-left. Both planes are elliptical
+     for the same reason the object is. */
   const contactCore = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.30, 0.30),
+    new THREE.PlaneGeometry(0.32, 0.32),
     new THREE.MeshBasicMaterial({
-      map: radialTexture(1, 0.34), color: 0x000000, transparent: true, opacity: 0.66,
+      map: contactTexture(0.60, 0.97), color: 0x000000, transparent: true, opacity: 0.90,
       depthWrite: false, blending: THREE.NormalBlending,
     })
   );
   contactCore.rotation.x = -Math.PI / 2;
-  contactCore.position.set(0, 0.0040, -0.004);
-  contactCore.renderOrder = 2;
+  contactCore.scale.x = 1.24;
+  contactCore.position.set(0, 0.0021, 0);
+  contactCore.renderOrder = 3;
   scene.add(contactCore);
 
+  const shadowAz = Math.atan2(-1.15, 1.25);          // away from the key, in the floor plane
   const contactWide = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.86, 0.60),
+    new THREE.PlaneGeometry(0.98, 0.74),
     new THREE.MeshBasicMaterial({
-      map: radialTexture(0.60, 0.30), color: 0x000000, transparent: true, opacity: 0.30,
+      map: contactTexture(0.26, 0.66), color: 0x000000, transparent: true, opacity: 0.40,
       depthWrite: false, blending: THREE.NormalBlending,
     })
   );
-  contactWide.rotation.x = -Math.PI / 2;
-  contactWide.position.set(0.045, 0.0036, 0.028);
-  contactWide.renderOrder = 1;
+  contactWide.rotation.set(-Math.PI / 2, 0, -shadowAz);
+  contactWide.position.set(Math.cos(shadowAz) * 0.030, 0.0019, -Math.sin(shadowAz) * 0.030);
+  contactWide.renderOrder = 2;
   scene.add(contactWide);
 
   /* lights */
   const hemi = new THREE.HemisphereLight(0xb9c3cc, 0x2a231d, 0.55);
   scene.add(hemi);
 
-  const key = new THREE.DirectionalLight(0xf2f4f6, 1.25);
+  const key = new THREE.DirectionalLight(0xf6f8fa, 1.25);
   key.position.set(-1.25, 1.95, 1.15);
   key.castShadow = true;
   key.shadow.mapSize.set(4096, 4096);
@@ -635,19 +756,26 @@ export function createStage(canvasEl, opts = {}) {
   rim.position.set(1.62, 1.30, -1.34);
   scene.add(rim);
 
-  const seamLight = new THREE.PointLight(0xffb464, 0.9, 0.85, 2);
+  const seamLight = new THREE.PointLight(0xffb464, 0.35, 0.85, 2);
   seamLight.position.set(0, 0.16, 0);
   scene.add(seamLight);
+  /* A warm bounce off the pool, low and wide: the room is amber below the waist, which is
+     true of any object standing in a warm pool. It is deliberately under the plinth's
+     height and weak enough that it cannot tint the body's mid-tone. */
+  const bounce = new THREE.PointLight(0xffa063, 0.16, 0.85, 2);
+  bounce.position.set(0.20, 0.030, 0.16);
+  scene.add(bounce);
   /* the object */
   const group = new THREE.Group();
   scene.add(group);
 
   const bodyGeo = shellGeometry();
-  const blast = blastMap();
+  const brushed = brushedNormal();
   const bodyMat = channelify(new THREE.MeshStandardMaterial({
-    color: 0x3a3d41, metalness: 0.78, roughness: 0.56,
-    envMapIntensity: 0.95,
-    bumpMap: blast, bumpScale: 0.10,
+    // starts where the Foundry finish sits, so the first frame is not a different material
+    color: 0xb6bac0, metalness: 1.0, roughness: 0.50,
+    envMapIntensity: 1.30,
+    normalMap: brushed, normalScale: new THREE.Vector2(0.42, 0.42),
     side: THREE.DoubleSide,
   }));
   const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -670,7 +798,7 @@ export function createStage(canvasEl, opts = {}) {
 
   const dial = new THREE.Mesh(
     new THREE.CylinderGeometry(0.0986, 0.0986, 0.0090, 140, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0x8b867e, metalness: 0.94, roughness: 0.34, envMapIntensity: 1.35 })
+    new THREE.MeshStandardMaterial({ color: 0xa4a9ae, metalness: 1.0, roughness: 0.38, envMapIntensity: 1.2 })
   );
   dial.position.y = 0.0094;
   group.add(dial);
@@ -721,12 +849,14 @@ export function createStage(canvasEl, opts = {}) {
   const DAY = {
     bg: new THREE.Color(0xc7bfb1), wall: new THREE.Color(0xd6cec0), floor: new THREE.Color(0xc2bbad),
     hemi: 1.5, key: 2.4, rim: 1.1, exposure: 0.90, fogNear: 2.4, fogFar: 6.8,
-    keyColor: new THREE.Color(0xfff6ea), envInt: 1.0,
+    // neutral, a hair cool. The warm light in this room belongs to the product, not to the
+    // light that describes it: a warm key on a metal is how a grey column becomes champagne.
+    keyColor: new THREE.Color(0xf6f8fa), envInt: 1.0,
   };
   const NIGHT = {
     bg: new THREE.Color(0x0d0b0a), wall: new THREE.Color(0x2a2521), floor: new THREE.Color(0x1f1b18),
-    hemi: 0.22, key: 0.86, rim: 1.30, exposure: 0.98, fogNear: 1.05, fogFar: 3.6,
-    keyColor: new THREE.Color(0x9fb4c6), envInt: 0.78,
+    hemi: 0.22, key: 0.92, rim: 1.30, exposure: 0.98, fogNear: 1.05, fogFar: 3.6,
+    keyColor: new THREE.Color(0xbccbd8), envInt: 0.78,
   };
   const tmp = new THREE.Color();
 
@@ -829,12 +959,18 @@ export function createStage(canvasEl, opts = {}) {
     const i = state.intensity;
     coreMat.emissiveIntensity = 0.9 + i * 2.2;
     CH.uGlowColor.value.copy(coreMat.emissive);
-    CH.uGlow.value = 0.55 + i * 1.35;
-    // the slot's own bounce stays small: a dark anodised body must not be repainted
-    // amber by the light that comes out of it
-    seamLight.intensity = 0.18 + i * 0.52;
-    slotLight.intensity = 0.10 + i * 0.34;
-    slotLightLow.intensity = 0.05 + i * 0.16;
+    // Pass 3c ─ the gap has to be seen to be the light source: at 0.45 the channel was a
+    // milled groove with a hint of warm in it, and the page's whole claim ("the light leaves
+    // through the gap") was invisible in the hero. The emissive term now carries the hero.
+    CH.uGlow.value = 1.85 + i * 1.15;
+    // The slot's own bounce stays tiny. These lights sit ~5 mm from the metal, where three's
+    // 1/r² multiplies the intensity by 4*10^4: pass 2's "0.34" was a floodlight painting the
+    // body amber, which is how a white studio produced a bronze macro. The light the seam
+    // throws is drawn by the floor and wall shaders; this is only the kiss at the plinth.
+    seamLight.intensity = 0.004 + i * 0.010;
+    slotLight.intensity = 0.0012 + i * 0.0026;
+    slotLightLow.intensity = 0.0006 + i * 0.0014;
+    bounce.intensity = 0.010 + i * 0.020;
 
     /* mood: 0 = plaster daylight, 1 = night */
     const m = state.mood;
@@ -859,6 +995,13 @@ export function createStage(canvasEl, opts = {}) {
 
     // the slot turns with the object, because it is part of the object
     group.rotation.y = state.orbit;
+    // ...and so does the key's direction in the object's own frame. Without this the wall
+    // of the groove that is in shadow stays on the same side of the object as you turn it,
+    // which is the tell that the shadow is painted rather than cast.
+    {
+      const [kx, kz] = _rot(-1.25, 1.15, -state.orbit);
+      CH.uKeyLocal.value.set(kx / groupScaleX, 1.95, kz).normalize();
+    }
     state.seamPhase = CHANNEL.phase + state.orbit;
     state.phase = state.seamPhase;
     updateEmitters(wallA, state.seamPhase, state.orbit);
@@ -870,8 +1013,10 @@ export function createStage(canvasEl, opts = {}) {
     slotLight.position.set(Math.cos(sa) * rOut, 0.5 * (CHANNEL.yMin + CHANNEL.yMax), Math.sin(sa) * rOut);
     slotLightLow.position.set(Math.cos(sa - 1.1) * rOut * 0.86, 0.075, Math.sin(sa - 1.1) * rOut * 0.86);
 
-    contactCore.material.opacity = (0.30 + 0.44 * m) * (1 - 0.30 * i);
-    contactWide.material.opacity = (0.16 + 0.24 * m) * (1 - 0.20 * i);
+    // a shadow is the light that did not arrive, so more output means a firmer contact,
+    // not a softer one
+    contactCore.material.opacity = (0.74 + 0.18 * m) * (0.93 + 0.07 * i);
+    contactWide.material.opacity = (0.26 + 0.16 * m) * (0.93 + 0.07 * i);
 
     if (!reduced) group.position.y = Math.sin(t * 0.5) * 0.0009;
 

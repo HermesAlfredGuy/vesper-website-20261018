@@ -245,34 +245,36 @@ const browser = await chromium.launch({
     return bad.length === 0;
   }), await page.evaluate(() => JSON.stringify(window.__underDock)));
 
-  const cta = await page.evaluate(async () => {
-    const out = [];
-    for (const id of ['top', 'object', 'atmosphere', 'materials', 'specification', 'reserve']) {
-      const el = document.getElementById(id);
+  const cta = [];
+  for (const id of ['top', 'object', 'atmosphere', 'materials', 'specification', 'reserve']) {
+    await page.evaluate((sid) => {
+      const el = document.getElementById(sid);
       window.scrollTo(0, el.offsetTop + Math.max(0, (el.offsetHeight - innerHeight) / 2));
-      // wait for the *class*, not for a stopwatch and not for the geometry: the scroll
-      // event is a task on the main thread and a WebGL frame here can take a second, so
-      // a fixed sleep can read the previous chapter's dock state
-      await page.waitForFunction((want) => document.body.classList.contains('is-end') === want,
-        id === 'reserve', { timeout: 20000, polling: 200 }).catch(() => {});
+    }, id);
+    // wait for the *class*, not for a stopwatch and not for the geometry: the scroll
+    // event is a task on the main thread and a WebGL frame here can take a second, so
+    // a fixed sleep can read the previous chapter's dock state. This runs in Node — it
+    // used to sit inside page.evaluate, where `page` does not exist.
+    await page.waitForFunction((want) => document.body.classList.contains('is-end') === want,
+      id === 'reserve', { timeout: 20000, polling: 200 }).catch(() => {});
+    // visibility flips on the frame the class lands, unlike the opacity fade, so
+    // this reads the state as the reader gets it and not as an animation queue sees it
+    const lit = await page.evaluate(() => {
       const dock = document.getElementById('dock');
-      // visibility flips on the frame the class lands, unlike the opacity fade, so
-      // this reads the state as the reader gets it and not as an animation queue sees it
       const dcs = getComputedStyle(dock);
       const dockVis = dcs.visibility !== 'hidden' && dcs.pointerEvents !== 'none'
         && Number(dcs.opacity) > 0.5 && dock.getBoundingClientRect().top < innerHeight;
-      const lit = [...document.querySelectorAll('.btn--solid')].filter((b) => {
+      return [...document.querySelectorAll('.btn--solid')].filter((b) => {
         const r = b.getBoundingClientRect();
         if (r.width === 0 || r.height === 0 || r.bottom < 0 || r.top > innerHeight) return false;
         const own = Number(getComputedStyle(b).opacity);
         if (own < 0.5) return false;
         if (b.closest('.dock') && !dockVis) return false;
         return true;
-      });
-      out.push([id, lit.map((b) => b.textContent.trim().slice(0, 24))]);
-    }
-    return out;
-  });
+      }).map((b) => b.textContent.trim().slice(0, 24));
+    });
+    cta.push([id, lit]);
+  }
   check('desktop: one primary action is in front of the reader at a time',
     cta.every(([, l]) => l.length <= 1), JSON.stringify(cta));
 

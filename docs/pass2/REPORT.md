@@ -83,3 +83,60 @@ commands above regenerate them.
   a smoke detector, not a certificate.
 - Two `unmeas` rows in every run: a filled button whose capture is a single luminance. They
   are reported rather than failed.
+
+---
+
+## Pass 3 — the body was a black mirror, and the dock was eating a line of type
+
+A fresh review of the *delivered* pass-2 frames did not accept the hero: the body read as "glossy
+black ceramic", the macro as "champagne-bronze", and the turn instruction was clipped by the
+dock. Both were measurable, and both had a single cause.
+
+### 1 · Value, not hue, was the defect
+
+`Foundry` was `0xb6bac0` at **metalness 1.0** with the environment at **1.30**. At metalness 1.0 a
+material has no diffuse response at all: it *is* the environment it mirrors, and this environment
+is a dark room with a few small panels. The albedo value is then irrelevant, which is exactly why
+a mid-grey albedo rendered as a black mirror.
+
+| body strip (x 792–1123, y 315–765 of `desk-top.png`) | p50 | p90 | pixels under L40 |
+| --- | --- | --- | --- |
+| pass 2, as delivered | **27.1** | 73.9 | **68.9 %** |
+| pass 3, after the changes below | **61–63** | **107** | **18–21 %** |
+
+Changes:
+* `Foundry` → `0xc6cbd2`, metalness **0.85**, roughness **0.42**, env **2.40** (a little diffuse
+  response back, so the albedo can state its value).
+* The studio's two overhead panels raised (`3.6 → 5.4`, `1.42 → 2.25`): more of the environment
+  is bright, so a metal sitting in it has something to reflect.
+* A **6.2 × 7.2 m neutral bounce card at (0.15, 1.5, 5.0), camera side, added to the reflection
+  environment only** (`panel()` writes into the PMREM scene, so it never appears in the picture).
+  This is the fix that matters: in an amber room every reflection is amber, so a metal's mid-tone
+  goes brown whatever the albedo says; the only way aluminium keeps a grey mid-tone in a warm room
+  is a large neutral source where it actually looks.
+* The warm practicals pulled back where they were tinting the body (`seamLight` 0.9 → 0.35).
+
+The room still reads amber — the card exists only in reflections — and the review of the new hero
+accepts the body as satin cast aluminium.
+
+### 2 · The instruction under the dock
+
+The dock is `position: fixed`, right-aligned, and at 1440 it measures **579 × 72 at x 795** — wider
+than the 44 vw the stylesheet assumed, because it wraps. The turn instruction ended at x 991, so
+its last two words sat under the panel. The hint now takes its own line at the left edge of the
+turn row (`flex-basis:100%; max-width:330px`), measured at **x 346–666** by a DOM rect probe, clear
+of the dock band at 795+; a 2× crop of the delivered frame reads the sentence in full.
+
+### 3 · `tools/verify.mjs` was crashing
+
+The suite died with `page.evaluate: ReferenceError: page is not defined` at line 248: a
+`page.waitForFunction` had been moved inside a `page.evaluate` callback, where `page` does not
+exist (the wait must run in Node, against the browser). Moved back out. `TOTAL 39/39 passed`.
+
+### 4 · Still open — the gap does not read as the light source
+
+The page's claim is "nothing glows on its surface, the light leaves through the gap", and at the
+hero framing the channel still reads as a milled groove with warm light in it rather than a lit
+gap: raising `uGlow` from 0.45 to 1.85 changed the groove's pixels by less than a count, so the
+emissive term is being killed by the escape mask at this angle rather than being too weak. This is
+the next thing to fix, and it is the one item of the pass-3 brief not delivered.
