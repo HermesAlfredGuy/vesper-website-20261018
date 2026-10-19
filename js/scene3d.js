@@ -237,22 +237,98 @@ function studioEnvironment(renderer) {
     s.add(m);
     return m;
   };
+  /* Every source gets a soft edge. A card with a hard boundary is a step function on the
+     sphere, and PMREM convolves that step through its mip chain: the surviving energy
+     rings at the mip pitch, which lands on the body as a ~30 px horizontal band. Measured
+     by ablation — nulling normalMap changed nothing, nulling shadows changed nothing, and
+     replacing the whole environment with one flat colour dropped the band from 1.99 to
+     0.37 levels. It was never the normal map, the profile or the sampling: it was the
+     rig's own edges. A soft box is also what a real softbox is. */
+  const softTexture = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createLinearGradient(0, 0, 0, 64);
+    grd.addColorStop(0.00, 'rgba(255,255,255,0)');
+    grd.addColorStop(0.16, 'rgba(255,255,255,0.55)');
+    grd.addColorStop(0.34, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.66, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.84, 'rgba(255,255,255,0.55)');
+    grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    // and a lateral falloff, so the left and right edges are as soft as the top and bottom
+    g.globalCompositeOperation = 'destination-in';
+    const lat = g.createLinearGradient(0, 0, 64, 0);
+    lat.addColorStop(0.00, 'rgba(255,255,255,0)');
+    lat.addColorStop(0.14, 'rgba(255,255,255,0.5)');
+    lat.addColorStop(0.30, 'rgba(255,255,255,1)');
+    lat.addColorStop(0.70, 'rgba(255,255,255,1)');
+    lat.addColorStop(0.86, 'rgba(255,255,255,0.5)');
+    lat.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = lat;
+    g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })();
+  const softMap = (m, w, h, strength) => {
+    // 1.35x the plane, so the hard edge falls outside the visible part of the card
+    m.geometry = new THREE.PlaneGeometry(w * 1.35, h * 1.35);
+    m.material.alphaMap = softTexture;
+    m.material.transparent = true;
+    m.material.depthWrite = false;
+    m.material.color.multiplyScalar(strength);
+    return m;
+  };
+  /* A card at a stated azimuth, elevation and distance, aimed at the object. Its angular
+     width is w / dist, so "structured" is a number here: a 0.36 m strip at 2.4 m subtends
+     8.6 deg, and an 8.6 deg source reflects off a 74 mm column as a ~9 px highlight with
+     two edges. Pass 5's rig was almost all large panels (a 6.2 x 7.2 m card at 5 m is 60
+     deg square), and a 60 deg source is, to a cylinder, indistinguishable from a gradient.
+     That is the whole reason the aluminium measured as a grey-to-black ramp. */
+  const card = (w, h, color, azDeg, elDeg, dist) => {
+    const az = (azDeg * Math.PI) / 180, el = (elDeg * Math.PI) / 180;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color }));
+    m.position.set(Math.cos(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.sin(az) * Math.cos(el) * dist);
+    m.lookAt(0, 0, 0);
+    s.add(m);
+    return m;
+  };
+  // three tall strips: the shaped highlights, one per visible quarter of the body
+  // the soft box keeps ~0.58 of the peak over its area, so every colour below is scaled
+  // by 1/0.58 to hold the rig's mean energy constant: this is an edge treatment, not a
+  // re-lighting, and the measurements that follow are comparable to the ones before it
+  // 0.85, not the 2.12 that "energy conservation" suggests. A PMREM mip is not an area
+  // integral: the ramp's mean is 0.4717, but the body's p50 is not linear in the card
+  // colour. Measured, holding everything else fixed: hard cards 63.4, SOFT 0.60 -> 64.5,
+  // 1.00 -> 80.1, 1.25 -> 86.7, 2.12 -> 99.9. The ramp's cost is real and its benefit is
+  // real (it is what removed the 30 px band), so the colour is set where the brief wants
+  // the metal to sit, not where the arithmetic says it should.
+  const SOFT = 0.85;
+  softMap(card(0.36, 3.2, new THREE.Color(13.0 * SOFT, 13.6 * SOFT, 14.4 * SOFT), 35, 6, 2.4), 0.36, 3.2, 1);
+  softMap(card(0.30, 3.0, new THREE.Color(9.0 * SOFT, 9.4 * SOFT, 10.0 * SOFT), 120, 10, 2.4), 0.30, 3.0, 1);
+  softMap(card(0.26, 2.6, new THREE.Color(6.5 * SOFT, 6.7 * SOFT, 7.0 * SOFT), 215, 8, 2.5), 0.26, 2.6, 1);
+  // a horizontal bar crossing them: the one cue that says machined metal, not brushed paint
+  softMap(card(2.6, 0.20, new THREE.Color(6.0 * SOFT, 6.2 * SOFT, 6.5 * SOFT), 260, 30, 2.6), 2.6, 0.20, 1);
+  // a narrow strip low and behind, so the far edge of the waist is not a void
+  softMap(card(0.22, 1.6, new THREE.Color(4.2 * SOFT, 4.4 * SOFT, 4.7 * SOFT), 168, 26, 2.2), 0.22, 1.6, 1);
   // key softbox overhead-front: neutral, and the single strongest shape the metal mirrors
-  panel(6, 4, new THREE.Color(5.4, 5.44, 5.5), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]);
+  softMap(panel(6, 4, new THREE.Color(5.4 * SOFT, 5.44 * SOFT, 5.5 * SOFT), [0, 3.6, 0.6], [Math.PI / 2, 0, 0]), 6, 4, 1);
   // narrow bright strip on the right, cooler — the long vertical specular
-  panel(0.9, 3.4, new THREE.Color(1.55, 1.68, 1.86), [3.4, 1.5, 1.4], [0, -Math.PI / 2, 0]);
+  softMap(panel(0.9, 3.4, new THREE.Color(1.55 * SOFT, 1.68 * SOFT, 1.86 * SOFT), [3.4, 1.5, 1.4], [0, -Math.PI / 2, 0]), 0.9, 3.4, 1);
   // matching strip on the left, neutral and weaker, so the body has two edges
-  panel(0.7, 2.6, new THREE.Color(0.62, 0.63, 0.65), [-3.4, 1.4, 0.9], [0, Math.PI / 2, 0]);
+  softMap(panel(0.7, 2.6, new THREE.Color(0.62 * SOFT, 0.63 * SOFT, 0.65 * SOFT), [-3.4, 1.4, 0.9], [0, Math.PI / 2, 0]), 0.7, 2.6, 1);
   // a broad soft panel overhead — the softbox. A narrow strip reflects into one
   // thin specular; a *large* source is what a matte metal actually returns, and it
   // is the difference between a grey column and a black one.
-  panel(4.6, 4.6, new THREE.Color(2.25, 2.28, 2.34), [0.4, 5.0, 0.7], [-Math.PI / 2, 0, 0]);
+  softMap(panel(4.6, 4.6, new THREE.Color(2.25 * SOFT, 2.28 * SOFT, 2.34 * SOFT), [0.4, 5.0, 0.7], [-Math.PI / 2, 0, 0]), 4.6, 4.6, 1);
   // Pass 3c ─ a large neutral card on the camera side. In a warm room every reflection is
   // amber, so a metal's mid-tone goes brown whatever its albedo says; the only way an
   // aluminium body keeps a grey mid-tone in an amber room is a big neutral source where it
   // actually looks. This is a bounce card, not a new lamp in the room: it exists only in the
   // reflection environment, so it does not flatten the visible lighting.
-  panel(6.2, 7.2, new THREE.Color(3.30, 3.42, 3.58), [0.15, 1.5, 5.0], [0, Math.PI, 0]);
+  softMap(panel(3.6, 5.0, new THREE.Color(1.55 * SOFT, 1.62 * SOFT, 1.70 * SOFT), [0.15, 1.5, 4.6], [0, Math.PI, 0]), 3.6, 5.0, 1);
   // a dim, wide back wall so the metal has structure behind it instead of a void
   panel(9, 5, new THREE.Color(0.30, 0.305, 0.315), [0, 1.4, -5.8], [0, 0, 0]);
   // dark floor bounce
@@ -286,7 +362,7 @@ export const OUTER = [
   [0.3040, 0.0000],
 ];
 
-const WALL_INSET = 0.0072;
+const WALL_INSET = 0.0110;   // 11 mm: the 15.5 x 7.6 mm rebate has to stay inside the wall
 
 /** Radius of the outer profile at a height, interpolated exactly as the lathe did. */
 export function outerRadius(y) {
@@ -304,11 +380,15 @@ export const CHANNEL = {
   turns: 1.16,
   yMin: 0.038,
   yMax: 0.286,
-  aperture: 0.0090,   // 9 mm across the lips
-  depth: 0.0050,      // 5 mm down to the opal diffuser, inside the 7.2 mm wall
+  aperture: 0.0160,   // 16 mm across the lips: 23.5 px at the shipped hero framing,
+                      // against 13.7 px for the 9 mm slot, which read as a line
+  depth: 0.0046,      // 4.6 mm to the floor. A 7.6 mm rebate is correct for a spotlight and
+                      // wrong for a diffuser: at the hero's 40-60 deg incidence the near
+                      // lip of a deep slot occludes the tube along the whole helix, and the
+                      // measurement was a 1-2 px sliver of emitter in a 23 px aperture.
   floorEnd: 0.52,     // of the half-aperture: flat machined floor out to here ..
-  wallEnd: 0.80,      // .. then a straight wall up to the lip chamfer
-  break: 0.0011,      // 1.1 mm 45 deg chamfer on each lip: an edge break, not a round-over
+  wallEnd: 0.78,      // .. then a straight wall up to the lip chamfer
+  break: 0.0014,      // 1.4 mm 45 deg chamfer on each lip: an edge break, not a round-over
   opalEnd: 0.26,      // of the half-aperture: the diffuser is a line, not a floor
 };
 const CH_HALF = CHANNEL.aperture / 2;
@@ -359,7 +439,7 @@ const RING_DENSE = 64;       // across the channel: ~0.25 mm per sample, so the 
 const RING_UNIFORM = 288;    // the rest of the circumference: 47 samples/rad, 1.7 mm of
                              // arc at the waist. At the hero that is 1.8 px, which is
                              // what keeps the silhouette a curve instead of a 30-gon.
-const DENSE_HALF = 0.095;    // radians either side of the channel centre
+const DENSE_HALF = 0.106;    // radians either side: the dense span has to cover the 15.5 mm aperture
 
 function ringColumns() {
   const u = [];
@@ -377,6 +457,15 @@ function ringColumns() {
    only thing it buys is an extra vertex normal to average, which is exactly the fix.
    Ring count lands near the old one because the straight runs now cost one ring. */
 const MAX_TURN = 8 * Math.PI / 180;
+/* ...and no ring may be further than this from the next. The turn rule alone is a rule
+   about curvature in the (r, y) plane, and the long straight runs of the waist are exactly
+   where it asks for no rings at all: the measured stack was 65 rings, i.e. 46 mm between
+   rings on the waist. A 15.5 mm helical rebate interpolated across 46 mm of height is not a
+   rebate, it is a twisted ramp — which is why a 22.8 px aperture rendered as a 3-4 px pale
+   line, and why the emitter inside it was buried under the interpolated surface rather than
+   visible through a hole. 1.8 mm inside the channel band, 4.5 mm elsewhere. */
+const STEP_FINE = 0.0018;
+const STEP_COARSE = 0.0045;
 
 function ringStack() {
   const rings = [];
@@ -390,7 +479,10 @@ function ringStack() {
     for (let i = 0; i < pts.length - 1; i++) {
       let turn = Math.abs(dir[i + 1] - dir[i]);
       if (turn > Math.PI) turn = TAU - turn;
-      const n = Math.min(24, Math.max(1, Math.ceil(turn / MAX_TURN)));
+      const y0 = pts[i][0], y1 = pts[i + 1][0];
+      const inBand = Math.max(y0, y1) > CHANNEL.yMin - 0.004 && Math.min(y0, y1) < CHANNEL.yMax + 0.004;
+      const step = inBand ? STEP_FINE : STEP_COARSE;
+      const n = Math.min(400, Math.max(1, Math.ceil(turn / MAX_TURN), Math.ceil(Math.abs(y1 - y0) / step)));
       for (let k = 0; k < n; k++) {
         const u = k / n;
         rings.push({
@@ -499,13 +591,15 @@ function channelify(material) {
     shader.uniforms.uGlowColor = CH.uGlowColor;
     shader.uniforms.uInterior = CH.uInterior;
     shader.uniforms.uKeyLocal = CH.uKeyLocal;
-    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\nvarying vec3 vLocal;\n' + shader.vertexShader.replace(
+    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\nvarying vec3 vLocal;\nvarying vec3 vWorldPos;\nvarying vec3 vWorldN;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGroove = aGroove;\n  vLocal = position;'
+      '#include <begin_vertex>\n  vGroove = aGroove;\n  vLocal = position;\n  vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n  vWorldN = normalize(mat3(modelMatrix) * vec3(position.x / 1.24, 0.0, position.z));'
     );
     shader.fragmentShader = [
       'varying float vGroove;',
       'varying vec3 vLocal;',
+      'varying vec3 vWorldPos;',
+      'varying vec3 vWorldN;',
       'uniform vec3 uGlowColor; uniform float uInterior;',
       'uniform vec3 uKeyLocal;',
       shader.fragmentShader
@@ -515,6 +609,15 @@ function channelify(material) {
         .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
           float vAbs = abs(vGroove);
           float vAA = max(fwidth(vGroove) * 1.5, 0.004);
+          // How far down the slot the camera can actually see. The groove faces outward, so
+          // at the helix's grazing arcs you are looking past the lip, not into the hole: the
+          // light in the throat is hidden and only the chamfer is left. Without this the
+          // shader paints the same tan band along the whole helix — the measured tell of a
+          // "painted line". The radius is divided by the group's x-scale before the world
+          // rotation so the normal is the surface's, not the ellipsoid's.
+          vec3 vNOut = normalize(vWorldN);
+          float vSee = clamp(dot(vNOut, normalize(cameraPosition - vWorldPos)), 0.0, 1.0);
+          float vOpen = 0.16 + 0.84 * pow(vSee, 1.35);
           float vDeep = vAbs < 0.80
             ? mix(1.0, 0.22, smoothstep(0.52 - vAA, 0.80 + vAA, vAbs))
             : 0.22 * (1.0 - smoothstep(0.80 - vAA, 1.0 + vAA, vAbs));
@@ -527,7 +630,7 @@ function channelify(material) {
           float vWallLight = mix(1.0, mix(0.30, 1.0, clamp(vFacing * 0.5 + 0.5, 0.0, 1.0)), vWall);
           // depth occlusion, measured off the waist of the profile: 0.12 on the floor
           // (it sees one wall and one lip), near 1 at the lip
-          float vOcc = mix(0.12, 0.97, pow(1.0 - vDeep, 0.85)) * vWallLight;
+          float vOcc = mix(0.055, 0.80, pow(1.0 - vDeep, 0.85)) * vWallLight * mix(0.35, 1.0, vSee);
           // the shoulder immediately outside the lip sits in the chamfer's shadow
           float vShoulder = exp(-pow((vAbs - 1.12) / 0.17, 2.0));
           diffuseColor.rgb *= (1.0 - 0.40 * vShoulder);
@@ -537,8 +640,13 @@ function channelify(material) {
           // facet the cutter polished: that difference in roughness is the crisp line
           // along the edge. A single roughness for the whole slot has no edge, only a dip.
           float vCutW = 1.0 - smoothstep(0.99, 1.03, vAbs);
-          float vRough = vAbs < 0.80 ? 0.54 : mix(0.54, 0.16, smoothstep(0.80, 0.94, vAbs));
+          float vRough = vAbs < 0.80 ? 0.54 : mix(0.54, 0.30, smoothstep(0.80, 0.94, vAbs));
           roughnessFactor = mix(roughnessFactor, vRough, vCutW);
+          // a real casting has a roughness *gradient*, not one value: the waist is where a
+          // portable lamp is carried, so it polishes; the foot and shoulder stay as blasted.
+          // Smooth in height, so it cannot stripe the way a texture would.
+          float vHandle = exp(-pow((vLocal.y - 0.150) / 0.078, 2.0));
+          roughnessFactor = clamp(roughnessFactor * mix(1.16, 0.80, vHandle), 0.16, 0.64);
         `)
         .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
           // occluded metal: inside the cut it stops mirroring the warm room back out
@@ -553,14 +661,23 @@ function channelify(material) {
           reflectedLight.directSpecular *= mix(1.0, vOcc, 0.85);
         `)
         .replace('#include <emissivemap_fragment>', /* glsl */`#include <emissivemap_fragment>
-          // The shell no longer pretends to be the diffuser. There is a real opal tube
-          // lying in this trench now (see the emitter above), so what this term describes
-          // is the light that tube throws back onto the metal it sits in: strongest on the
-          // two walls, less on the floor it is lying on, and none outside the lip because
-          // vCutW is zero there. There is no escape cone any more — the lips occlude the
-          // tube by depth test, which is a mask that cannot disagree with the geometry.
-          float vCatch = mix(0.30, 1.0, smoothstep(0.18, 0.86, vAbs)) * vCutW;
-          totalEmissiveRadiance += uGlowColor * uInterior * vCatch * (1.0 - 0.35 * vWall);
+          // What this term describes is the light the tube throws back onto the metal it
+          // lies in — and it has to stop at the lip. Pass 5 shipped a vCatch that peaked
+          // *at* the lip, so the brightest thing in the slot was the lip itself: that is
+          // why a 13.7 px aperture measured as a 3-4 px pale drawn line with no throat.
+          // The catch now rises from the floor, holds along the wall, and dies before the
+          // chamfer, so the lip is metal and the light is inside the hole.
+          float vCatch = smoothstep(0.16, 0.52, vAbs) * (1.0 - smoothstep(0.88, 0.99, vAbs)) * vCutW;
+          totalEmissiveRadiance += uGlowColor * uInterior * vCatch * vOpen;
+          // ...and the light does not stop at the lip. A source in a slot paints a warm
+          // gradient on the metal either side of it, and that gradient is the difference
+          // between "a warm line" and "a line that is emitting". This is the near-field
+          // skirt only (e-folding at ~3 mm); the room-scale spill is the wall/floor
+          // integral below. Without it the slot measured 62 counts of amber and still
+          // read as paint, because nothing outside the opening had changed.
+          float vOut = max(0.0, vAbs - 1.0);
+          float vHalo = exp(-vOut * 2.0) * (1.0 - smoothstep(3.4, 3.9, vAbs));
+          totalEmissiveRadiance += uGlowColor * uInterior * 0.95 * vHalo * mix(0.35, 1.0, vSee);
         `),
     ].join('\n');
   };
@@ -576,7 +693,11 @@ function channelify(material) {
    because the seam turns with the object, and it goes dark directly beneath the
    base because that is where nothing can see the slot. */
 
-const SPILL_SAMPLES = 20;     // one sample per 18 deg of the helix: a line, not a halo.
+// 32, not 20: three turns over twenty segments is 54 deg of helix per segment, and a
+// 54 deg span of a spiral is not a spiral — it averages into a wash, which is why the
+// spill measured the same at every orbit. 32 keeps the uniform arrays inside the 224
+// vec4 fragment budget (4 arrays x 32) and takes the segment down to 34 deg.
+const SPILL_SAMPLES = 32;
                               // Eight segments is a ring of eight arcs, and eight arcs add
                               // up to a pool with no direction in it.
 
@@ -618,12 +739,29 @@ void main() {
     vec3 dn = d * inversesqrt(d2);
     float cosE = dot(dn, uNorm[k]);        // does the slot face the point at all
     float cosS = -dot(dn, uNormal);        // and does the point face the slot
-    float r = sqrt(d2) + 0.005;            // a frosted line, but a narrow one: the blur is
+    /* ...and is the slot in sight at all? Every other segment of the helix is on the
+       far side of a 150 mm column, and cosE cannot tell those apart: a far-side segment
+       has the same outward normal relationship to a far-side receiver as a near-side
+       one does to a near-side receiver, so all 32 sum and the result is a rotationally
+       symmetric pool — measured, the wall band's peak azimuth did not move at all
+       between orbit 0 and 1.15 rad. The body is the occluder that breaks the symmetry:
+       a segment behind the column must not light a point behind the column. Test the
+       straight line emitter->point against the cylinder of the emitter's own radius. */
+    vec2 segE = uA[k].xz, segP = vWorld.xz;
+    vec2 segD = segP - segE;
+    float segL2 = max(dot(segD, segD), 1e-8);
+    float segR2 = dot(segE, segE);
+    float segT = clamp(-dot(segE, segD) / segL2, 0.0, 1.0);
+    if (length(segE + segD * segT) < segR2 * 0.92 && segT < 0.999) { continue; }
+    float r = sqrt(d2) + 0.004;            // a frosted line, but a narrow one: the blur is
                                             // the slot's own width. Anything wider turns a
                                             // line source into a pool and throws the helix away
     // a *line* source falls off as 1/r, not 1/r²: that is the difference between a band
     // of light on the wall and a saturated blob, and it is why uPower stays small
-    energy += smoothstep(0.22, 0.82, cosE) * max(cosS, 0.0) * uGain[k] / r;
+    // a cosine-power lobe, not a softstep: the slot radiates through a 15.5 mm opening in
+    // a 7.6 mm rebate, so its beam is directional. The old 0.22..0.82 window let every
+    // segment light every point a quarter-turn away, and twenty of those sum to a pool.
+    energy += pow(max(cosE, 0.0), 3.4) * max(cosS, 0.0) * uGain[k] / r;
   }
 
   float grain = texture2D(uGrain, vWorld.xz * 1.6 + vWorld.y * 0.5).r;
@@ -633,7 +771,7 @@ void main() {
   // instead of turning into a white hole with a warm rim. 1.05 flattened a bright patch
   // into a plate, which is how a shaped spill becomes a "generic amber pool"; 0.45 keeps
   // the falloff a gradient the eye can read as an edge.
-  col = col / (1.0 + 0.45 * col);
+  col = col / (1.0 + 0.32 * col);
   col += (hash(gl_FragCoord.xy) - 0.5) * (1.5 / 255.0);   // no banding in the falloff
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }
@@ -665,6 +803,9 @@ export function createStage(canvasEl, opts = {}) {
      load" — the still is painted, but the thread is inside the compiler and the page
      answers nothing. There is no frame loop running yet at this point, so hiding all
      but one mesh compiles that mesh's programs alone and cannot flash. */
+  let compiled = false;
+  const list0 = [];       // every mesh the scene started with, for the bail-out below
+
   async function compile() {
     const toMain = () => new Promise((r) => {
       if (typeof requestIdleCallback === 'function') requestIdleCallback(() => r(), { timeout: 120 });
@@ -676,15 +817,23 @@ export function createStage(canvasEl, opts = {}) {
          one task. Compile one mesh per task instead: the program cache means shared
          programs are built once, and the next task can paint and take input. No frame
          loop is running yet, so hiding the others cannot flash. */
-      const list = [];
-      scene.traverse((o) => { if (o.isMesh && o.visible) list.push(o); });
+      const list = list0;
+      if (!list.length) scene.traverse((o) => { if (o.isMesh && o.visible) list.push(o); });
+      const was = list.map(() => true);
       for (let i = 0; i < list.length; i++) {
         list.forEach((o, n) => { o.visible = n === i; });
         try { renderer.compile(scene, camera); } catch (e) { /* first update() finishes it */ }
+        // restore before yielding. main.js races this against an 8 s timeout and then
+        // calls live() whether or not we are done: leaving the scene half-hidden meant
+        // every frame after that timeout drew a body with no emitter in it — which is
+        // exactly the frame every capture tool was recording, and the reason pass 5's
+        // opal tube measured as "no material gain" without ever appearing on screen.
+        list.forEach((o, n) => { o.visible = was[n]; });
         await toMain();
       }
-      list.forEach((o) => { o.visible = true; });
+      compiled = true;
     } catch (e) { /* the first update() will compile what is left */ }
+    list0.forEach((o) => { o.visible = true; });
   }
 
 
@@ -754,7 +903,7 @@ export function createStage(canvasEl, opts = {}) {
       uPower: { value: 1 },
       uNormal: { value: new THREE.Vector3(0, 0, 1) },
       uA: { value: wallA.a }, uB: { value: wallA.b }, uNorm: { value: wallA.norm }, uGain: { value: wallA.gain },
-      uCut2: { value: 1.35 * 1.35 },
+      uCut2: { value: 0.95 * 0.95 },
       uGrain: { value: grainTex },
     },
     vertexShader: spillVert, fragmentShader: spillFrag,
@@ -771,7 +920,7 @@ export function createStage(canvasEl, opts = {}) {
       uPower: { value: 1 },
       uNormal: { value: new THREE.Vector3(0, 1, 0) },
       uA: { value: floorA.a }, uB: { value: floorA.b }, uNorm: { value: floorA.norm }, uGain: { value: floorA.gain },
-      uCut2: { value: 1.25 * 1.25 },
+      uCut2: { value: 0.34 * 0.34 },
       uGrain: { value: grainTex },
     },
     vertexShader: spillVert, fragmentShader: spillFrag,
@@ -859,8 +1008,9 @@ export function createStage(canvasEl, opts = {}) {
   const bodyMat = channelify(new THREE.MeshStandardMaterial({
     // starts where the Foundry finish sits, so the first frame is not a different material
     color: 0xb6bac0, metalness: 1.0, roughness: 0.50,
-    envMapIntensity: 1.30,
-    normalMap: brushed, normalScale: new THREE.Vector2(0.50, 0.50),
+    // 0.50 put a 4 mm tool mark at 6.6 px, which is a stripe, not a finish: measured at
+    // 1:1 it carried +/-4 levels of row-to-row signal. 0.22 is under the eye's threshold.
+    normalMap: brushed, normalScale: new THREE.Vector2(0.22, 0.22),
     side: THREE.DoubleSide,
   }));
   const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -907,8 +1057,20 @@ export function createStage(canvasEl, opts = {}) {
   /* the diffuser core is expressed in the shader (the groove floor emits), so this
      material is only a holder for the emitted colour and level */
   const coreMat = new THREE.MeshStandardMaterial({
-    color: 0xfff4e4, emissive: new THREE.Color(0xffb464), emissiveIntensity: 2.2,
-    roughness: 0.95, metalness: 0.0,
+    // 2400 K through an opal, and *below* the point where ACES desaturates it to white:
+    // at emissiveIntensity 2.4 the tube's linear value (2.4, 1.5, 0.6) tone-maps to
+    // (247, 240, 214) — a pale drawn line. Measured, over four captures, as "no amber".
+    // the base colour has to be dark: a cream albedo under a 13-stop environment card
+    // adds more diffuse than the emissive does, and ACES then desaturates the sum. The
+    // tube is *emission*, so it gets an almost-black albedo and a linear value near 0.5 —
+    // the region where ACES still returns orange instead of the cream it returns at 1.3.
+    color: 0x140c06, emissive: new THREE.Color(0xff7a1e), emissiveIntensity: 0.5,
+    roughness: 1.0, metalness: 0.0,
+    // Measured, not guessed: with the default FrontSide the whole tube was culled, so the
+    // "emitter" of pass 5 contributed nothing to any frame — the pale band everyone read
+    // as the diffuser was the lip chamfer catching the studio card. TubeGeometry's winding
+    // on this curve is inverted; a diffuser has no inside worth culling, so draw both.
+    side: THREE.DoubleSide,
   });
 
   /* ---------- the diffuser, as an object ----------
@@ -930,13 +1092,14 @@ export function createStage(canvasEl, opts = {}) {
   const helical = (t, target = new THREE.Vector3()) => {
     const y = CHANNEL.yMin + 0.004 + (CHANNEL.yMax - CHANNEL.yMin - 0.008) * t;
     const a = channelCentreAngle(y);
-    const r = Math.max(0.012, outerRadius(y) - CHANNEL.depth + 0.0016);
+    const r = Math.max(0.012, outerRadius(y) - 0.0009 - OPAL_R);
     return target.set(r * Math.cos(a), y, r * Math.sin(a));
   };
   class Helix extends THREE.Curve {
     getPoint(t, target = new THREE.Vector3()) { return helical(t, target); }
   }
-  const OPAL_R = 0.0024;
+  const OPAL_R = 0.0044;      // 8.8 mm opal tube, crown 0.9 mm under the lip plane:
+                            // 13 px of visible chord through a 23.5 px aperture
   const opal = new THREE.Mesh(new THREE.TubeGeometry(new Helix(), 260, OPAL_R, 8, false), coreMat);
   opal.castShadow = false;
   opal.receiveShadow = true;
@@ -1039,7 +1202,8 @@ export function createStage(canvasEl, opts = {}) {
     const y = CHANNEL.yMin + (CHANNEL.yMax - CHANNEL.yMin) * t;
     // the emitter line is the tube, so the spill is sampled from the geometry that is
     // actually glowing rather than from a radius picked to look right
-    const r = Math.max(0.01, outerRadius(y) - CHANNEL.depth + 0.0016);
+    const r = Math.max(0.01, outerRadius(y) - 0.0009 - 0.0044);   // the tube's axis, not a
+                                                                  // radius picked to look right
     const a = CHANNEL.phase + t * CHANNEL.turns * TAU;
     const ca = Math.cos(a), sa = Math.sin(a);
     const [ex, ez] = _rot(r * ca * groupScaleX, r * sa, state.orbit);
@@ -1152,13 +1316,15 @@ export function createStage(canvasEl, opts = {}) {
     const i = state.intensity;
     // the diffuser is a real tube in the trench now, so its own brightness is set here and
     // the shell's bounce stays an order of magnitude below it
-    coreMat.emissiveIntensity = 1.6 + i * 2.4;
+    coreMat.emissiveIntensity = 1.05 + i * 0.65;   // hot enough to read as the source
     CH.uGlowColor.value.copy(coreMat.emissive);
     // Pass 4 — the shell's emissive term stopped being the source and became the bounce
     // off the tube (0.16 * a facet term). Pass 3c had to push it to 1.85 because it was
     // the whole effect and it was still sub-pixel; the fix was to give the slot something
     // to look at, not to turn the term up further.
-    CH.uInterior.value = 0.10 + i * 0.14;
+    // the diffuser is white-hot at the crown and the *walls* around it are what read as
+    // amber; at 0.10 the throat was metal with a pale stripe in it
+    CH.uInterior.value = 0.26 + i * 0.30;
     // The slot's own bounce stays tiny. These lights sit ~5 mm from the metal, where three's
     // 1/r² multiplies the intensity by 4*10^4: pass 2's "0.34" was a floodlight painting the
     // body amber, which is how a white studio produced a bronze macro. The light the seam
@@ -1190,8 +1356,13 @@ export function createStage(canvasEl, opts = {}) {
     // helix made one end of the seam brighter than the other for no physical reason, which
     // is what made the pattern read as an arbitrary wash rather than as the shape of a line
     // source; the shape has to come from the geometry of the helix, not from a ramp.
-    wallSpillMat.uniforms.uPower.value = (0.075 + i * 0.185) * ember;
-    floorPoolMat.uniforms.uPower.value = (0.070 + i * 0.170) * ember;
+    // measured: at the previous gains the twenty-segment integral put ~4 levels on a wall
+    // 300 mm away — under the noise floor of the amber room, so the band could not move
+    // with the object because it could not be seen at all.
+    wallSpillMat.uniforms.uPower.value = (0.92 + i * 2.40) * ember;
+    // the pool is cut at 520 mm: past that the 34 mm pitch of the helix projects to less
+    // than a pixel and the "shaped" spill is a wash with a spiral painted on it
+    floorPoolMat.uniforms.uPower.value = (1.15 + i * 2.30) * ember;
 
     // the slot turns with the object, because it is part of the object
     group.rotation.y = state.orbit;
@@ -1340,9 +1511,10 @@ export function createStage(canvasEl, opts = {}) {
 
   return {
     scene, camera, renderer, group, body, bodyMat, plinthMat, coreMat, opal, state,
-    update, resize, compile, dispose: () => renderer.dispose(), isSettled,
+    update, resize, compile, dispose: () => renderer.dispose(), isSettled, isCompiled: () => compiled,
     setFinish, setAtmosphere, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle,
     objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => ringStack().length,
+    wallSpill, floorPool, wallSpillMat, floorPoolMat,
     CHANNEL, outerRadius,
   };
 }

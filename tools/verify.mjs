@@ -109,9 +109,15 @@ const browser = await chromium.launch({
   const groove = await page.evaluate(() => [0.11, 0.17, 0.24].map((y) => window.__stage.grooveProbe(y)));
   // measured off the vertex buffer, against the smooth profile the lathe would have
   // followed: if the channel were a painted stripe these depths would all be zero
+  // 4.6 mm deep and 16.0 mm across: a 7.6 mm rebate is right for a spotlight and wrong
+  // for a diffuser, because at the hero's 40-60 deg incidence the near lip occluded the
+  // tube along the whole helix. The bounds are the design's, read off CHANNEL, so this
+  // check still fails if the mesh ever stops matching the shader.
+  const CHd = await page.evaluate(() => window.__stage.CHANNEL.depth);
+  const CHa = await page.evaluate(() => window.__stage.CHANNEL.aperture);
   check('desktop: the channel is milled into the mesh, not drawn on it',
-    groove.every((g) => g.floorRadius !== null && g.depth > 0.0035 && g.depth <= 0.0055
-      && Math.abs(g.halfWidth - 0.0045) < 0.0008 && g.samples >= 3),
+    groove.every((g) => g.floorRadius !== null && Math.abs(g.depth - CHd) < 0.0004
+      && Math.abs(g.halfWidth - CHa / 2) < 0.0006 && g.samples >= 3),
     JSON.stringify(groove.map((g) => ({ at: g.at, depth: +(g.depth * 1000).toFixed(2), half: +(g.halfWidth * 1000).toFixed(2) }))));
 
   /* the floor and the wall are lit by a line source that is part of the object, so

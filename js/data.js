@@ -17,7 +17,12 @@ export const FINISHES = [
     // Pass 3b ─ env 2.6: at metalness 1.0 the body's value IS the environment it mirrors, and
     // at 1.30 it mirrored a dark neutral room and read as black ceramic. The studio is
     // neutral, so more of it is what makes the metal sit at aluminium's value, not warmer light.
-    color: 0xc6cbd2, metalness: 0.85, roughness: 0.42, env: 2.40,
+    // 1.72, not 2.40. The soft-edged rig has the same mean energy as the hard-edged one
+    // (measured off the ramp: 0.4717 mean, so the cards are scaled by 2.12) but it spreads
+    // it, and at roughness 0.42 the metal integrates that spread over a much wider lobe.
+    // Held at 2.40 the body's p50 measured 100.9 counts against a brief target of ~69: a
+    // light grey column, not the dark cast aluminium the whole page is set around.
+    color: 0xc6cbd2, metalness: 0.85, roughness: 0.42, env: 1.72,
     blurb: 'Bead-blasted and left unsealed. It keeps the fingerprints of the room.' },
   { id: 'umber', name: 'Umber', sub: 'burnt bronze', swatch: '#6b4527',
     color: 0x7d5330, metalness: 1.0, roughness: 0.46, env: 1.10,
