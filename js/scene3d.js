@@ -822,6 +822,10 @@ export function createStage(canvasEl, opts = {}) {
        would write NaN into the material. */
     if (!hasRendered) {
       bodyMat.color.set(state.finishTarget.color);
+      /* A cast shell is a long, smooth highlight gradient across an 18 cm form.
+         Without dither that gradient quantises to 8 bits and the shoulder reads as
+         stepped bands — which is exactly what a "plastic" read is made of. */
+      bodyMat.dithering = true;
       bodyMat.metalness = state.finishTarget.metalness;
       bodyMat.roughness = state.finishTarget.roughness;
       bodyMat.envMapIntensity = state.finishTarget.env;
