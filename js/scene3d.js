@@ -10,6 +10,7 @@
    shaded, because the diffuser is a source, not a lit surface. */
 
 import * as THREE from '../vendor/three.module.js';
+import { GLTFLoader } from '../vendor/GLTFLoader.js';
 import { FINISHES, ATMOSPHERES } from './data.js';
 
 export { FINISHES, ATMOSPHERES };
@@ -107,57 +108,6 @@ function plasterMaps() {
    sub-texel, which is the right way round: isotropic noise minifies to a flat sheen,
    coherent lines are what beat. The caller sets uv in tile units, so the pitch on the
    surface no longer depends on how many rings the profile happens to have. */
-const BRUSH_TILE = 0.064;    // metres of surface per texture tile
-function brushedNormal() {
-  const S = 512;
-  const MARKS = 16;          // 64 mm / 16 = a 4 mm tool-mark pitch
-  const h = new Float32Array(S * S);
-  for (let y = 0; y < S; y++) {
-    // the marks drift, slightly and irregularly. The old map wobbled them with
-    // sin(3x) at 0.6 rad: a 21 mm periodic wave, which is where the *waviness* came
-    // from. One slow drift per tile is what a tool actually leaves.
-    const wob = Math.sin((y / S) * TAU) * 0.5 + Math.sin((y / S) * TAU * 0.37 + 1.7) * 0.22;
-    for (let x = 0; x < S; x++) {
-      const n = Math.random() - 0.5;                                   // bead blast
-      const line = Math.sin((y / S) * TAU * MARKS + wob + x * 0.0009);
-      h[y * S + x] = line * 0.42 + n * 0.95;
-    }
-  }
-  // blur before the blast is turned into normals: a grain, not per-pixel salt
-  const b = new Float32Array(S * S);
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      let acc = 0;
-      for (let k = -1; k <= 1; k++) acc += h[y * S + ((x + k + S) % S)];
-      b[y * S + x] = acc / 3;
-    }
-  }
-  const c = canvas(S);
-  const g = c.getContext('2d');
-  const img = g.createImageData(S, S);
-  const k = 0.42;                                          // slope: bends the highlight, does not chop it
-  for (let y = 0; y < S; y++) {
-    const yp = ((y + 1) % S) * S, ym = ((y - 1 + S) % S) * S;
-    for (let x = 0; x < S; x++) {
-      const dx = (b[y * S + ((x + 1) % S)] - b[y * S + ((x - 1 + S) % S)]) * k;
-      const dy = (b[yp + x] - b[ym + x]) * k;
-      const nz = 1 / Math.sqrt(dx * dx + dy * dy + 1);
-      const o = (y * S + x) * 4;
-      img.data[o] = Math.round((-dx * nz * 0.5 + 0.5) * 255);
-      img.data[o + 1] = Math.round((-dy * nz * 0.5 + 0.5) * 255);
-      img.data[o + 2] = Math.round((nz * 0.5 + 0.5) * 255);
-      img.data[o + 3] = 255;
-    }
-  }
-  g.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  // repeat stays 1: the shell's uv is already in tile units, so the map's world size is
-  // a property of the geometry rather than of a number typed here
-  t.anisotropy = 8;
-  return t;
-}
-
 function radialTexture(inner, mid) {
   const S = 256;
   const c = canvas(S);
@@ -376,313 +326,32 @@ export function outerRadius(y) {
 /* ---------- the channel ---------- */
 
 export const CHANNEL = {
+  /* The asset's slot, in metres — read off tools/asset/build_vesper.py, not chosen here.
+     Pass 6 stopped shading a groove. The recess is a machined helical slot cut into the
+     shell mesh: 14 mm across the untouched surface, a 6.5 mm floor, a 45 deg lip chamfer
+     and a 0.45 mm lip land, with a 5 deg draft throat wall between them. aperture and
+     depth are the geometry's own numbers, and verify.mjs measures them back off the
+     loaded vertex buffer — a shader cannot report them. */
   phase: -1.15,       // where the single start sits at half height in the front view
   turns: 1.16,
   yMin: 0.038,
   yMax: 0.286,
-  aperture: 0.0160,   // 16 mm across the lips: 23.5 px at the shipped hero framing,
-                      // against 13.7 px for the 9 mm slot, which read as a line
-  depth: 0.0046,      // 4.6 mm to the floor. A 7.6 mm rebate is correct for a spotlight and
-                      // wrong for a diffuser: at the hero's 40-60 deg incidence the near
-                      // lip of a deep slot occludes the tube along the whole helix, and the
-                      // measurement was a 1-2 px sliver of emitter in a 23 px aperture.
-  floorEnd: 0.52,     // of the half-aperture: flat machined floor out to here ..
-  wallEnd: 0.78,      // .. then a straight wall up to the lip chamfer
-  break: 0.0014,      // 1.4 mm 45 deg chamfer on each lip: an edge break, not a round-over
-  opalEnd: 0.26,      // of the half-aperture: the diffuser is a line, not a floor
+  aperture: 0.0140,   // 14 mm across the opening: 15.0 px at the shipped hero framing
+  depth: 0.0065,      // 6.5 mm to the floor
+  lipBreak: 0.00585,  // half-aperture where the 45 deg chamfer meets the throat wall
+  floorHalf: 0.00430, // half-aperture of the flat floor
+  pipeHalf: 0.00270,  // light-pipe half width (5.4 mm strip)
+  pipeCrown: 0.00395, // crown of the pipe below the untouched surface
 };
-const CH_HALF = CHANNEL.aperture / 2;
-const CH_OUT = 9.0;   // sentinel: this vertex is nowhere near the channel
 
-/** Signed distance across the channel in units of the half-aperture: 0 centre, ±1 lip. */
+/** How far along the helix a height sits: 0 at the slot's bottom, 1 at its top. */
 function channelT(y) {
   return Math.min(1, Math.max(0, (y - CHANNEL.yMin) / (CHANNEL.yMax - CHANNEL.yMin)));
 }
+
+/** Azimuth of the slot's centre at a height, in the shipped front view. */
 function channelCentreAngle(y) {
   return CHANNEL.phase + channelT(y) * CHANNEL.turns * TAU;
-}
-/** Half-aperture at a height. The slot pinches over the last few millimetres at each
-    end, the way a cutter runs out, instead of stopping on a hard annular edge. */
-function channelHalf(y) {
-  const tt = channelT(y);
-  const run = Math.min(1, Math.min(tt, 1 - tt) / 0.014);
-  return CH_HALF * (0.58 + 0.42 * run);
-}
-/** How far the surface is cut below the outer radius at a given offset.
-    Four straight facets, because a cutter leaves straight facets: a flat floor, a steep
-    wall, a 45 degree chamfer, and the untouched shoulder. The previous version eased the
-    wall with a smoothstep, which is the one profile that reflects like a groove *milled
-    in clay* — no crisp line anywhere along it. */
-function slotCut(f) {
-  const a = Math.abs(f);
-  if (a <= CHANNEL.floorEnd) return CHANNEL.depth;
-  if (a <= CHANNEL.wallEnd) {
-    const u = (a - CHANNEL.floorEnd) / (CHANNEL.wallEnd - CHANNEL.floorEnd);
-    return CHANNEL.depth + (CHANNEL.break - CHANNEL.depth) * u;      // straight wall
-  }
-  if (a < 1) {
-    const u = (a - CHANNEL.wallEnd) / (1 - CHANNEL.wallEnd);
-    return CHANNEL.break * (1 - u);                                  // 45 deg lip chamfer
-  }
-  return 0;
-}
-
-/* ---------- the shell ----------
-   One ring per height, each ring carrying the same angular samples — but clustered,
-   so that wherever the channel is at that height it gets 40 samples across 9 mm and
-   the remaining 200 spread over the rest of the circumference. The dense span is the
-   same in every ring, so the parametrisation follows the helix and the mesh stays a
-   regular grid. */
-
-const RING_DENSE = 64;       // across the channel: ~0.25 mm per sample, so the 1.1 mm
-                             // chamfer is three samples wide and reads as a facet
-const RING_UNIFORM = 288;    // the rest of the circumference: 47 samples/rad, 1.7 mm of
-                             // arc at the waist. At the hero that is 1.8 px, which is
-                             // what keeps the silhouette a curve instead of a 30-gon.
-const DENSE_HALF = 0.106;    // radians either side: the dense span has to cover the 15.5 mm aperture
-
-function ringColumns() {
-  const u = [];
-  for (let k = 0; k < RING_DENSE; k++) u.push(-DENSE_HALF + (2 * DENSE_HALF * k) / (RING_DENSE - 1));
-  for (let k = 0; k < RING_UNIFORM; k++) u.push(DENSE_HALF + ((TAU - 2 * DENSE_HALF) * k) / RING_UNIFORM);
-  u.push(u[0] + TAU);                       // close the ring
-  return u;
-}
-
-/* The rings are placed by *how far the surface turns*, not by a fixed count per profile
-   segment. The old stack put three rings on every segment of OUTER, so a 47 degree turn
-   from the foot flare into the waist happened across a single facet and the highlight
-   broke there; the long straight runs of the waist got the same three rings for nothing.
-   Subdividing a straight segment changes no geometry at all — collinear points — so the
-   only thing it buys is an extra vertex normal to average, which is exactly the fix.
-   Ring count lands near the old one because the straight runs now cost one ring. */
-const MAX_TURN = 8 * Math.PI / 180;
-/* ...and no ring may be further than this from the next. The turn rule alone is a rule
-   about curvature in the (r, y) plane, and the long straight runs of the waist are exactly
-   where it asks for no rings at all: the measured stack was 65 rings, i.e. 46 mm between
-   rings on the waist. A 15.5 mm helical rebate interpolated across 46 mm of height is not a
-   rebate, it is a twisted ramp — which is why a 22.8 px aperture rendered as a 3-4 px pale
-   line, and why the emitter inside it was buried under the interpolated surface rather than
-   visible through a hole. 1.8 mm inside the channel band, 4.5 mm elsewhere. */
-const STEP_FINE = 0.0018;
-const STEP_COARSE = 0.0045;
-
-function ringStack() {
-  const rings = [];
-  const push = (pts, outer) => {
-    // tangent of the profile at each vertex, in the (r, y) plane; a central difference,
-    // so a sharp corner spreads its turn over the two segments that meet there
-    const dir = pts.map((p, i) => {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-      return Math.atan2(b[0] - a[0], b[1] - a[1]);
-    });
-    for (let i = 0; i < pts.length - 1; i++) {
-      let turn = Math.abs(dir[i + 1] - dir[i]);
-      if (turn > Math.PI) turn = TAU - turn;
-      const y0 = pts[i][0], y1 = pts[i + 1][0];
-      const inBand = Math.max(y0, y1) > CHANNEL.yMin - 0.004 && Math.min(y0, y1) < CHANNEL.yMax + 0.004;
-      const step = inBand ? STEP_FINE : STEP_COARSE;
-      const n = Math.min(400, Math.max(1, Math.ceil(turn / MAX_TURN), Math.ceil(Math.abs(y1 - y0) / step)));
-      for (let k = 0; k < n; k++) {
-        const u = k / n;
-        rings.push({
-          y: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * u,
-          r: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * u,
-          outer,
-        });
-      }
-    }
-    const last = pts[pts.length - 1];
-    rings.push({ y: last[0], r: last[1], outer });
-  };
-
-  push(OUTER.map(([y, r]) => [y, r]), true);
-  const inner = OUTER.slice().reverse().map(([y, r]) => [y - WALL_INSET, Math.max(0, r - WALL_INSET)]);
-  push(inner, false);
-  rings.push({ y: rings[0].y, r: rings[0].r, outer: true });   // close the bottom annulus
-  return rings;
-}
-
-function shellGeometry() {
-  const U = ringColumns();
-  const rings = ringStack();
-  const cols = U.length, rows = rings.length;
-  const pos = new Float32Array(rows * cols * 3);
-  const uv = new Float32Array(rows * cols * 2);
-  const groove = new Float32Array(rows * cols);
-  const idx = new Uint32Array((rows - 1) * (cols - 1) * 6);
-  let t3 = 0;
-
-  /* uv in *tiles*, so the normal map's pitch on the surface is a property of the
-     geometry and not of a repeat count. v is arc length along the profile: the old
-     v was the ring index, which bunched the tool marks wherever the profile turned;
-     u is the arc length round the circumference, which the old u was not — it was the
-     column index, so the clustered channel columns stretched the map ~10x across the
-     seam. Both were interface bugs between the mesh and the map, and both put the
-     visible damage exactly where the eye already was. */
-  const arcOf = (i) => {
-    let acc = 0;
-    for (let k = 1; k <= i; k++) acc += Math.hypot(rings[k].y - rings[k - 1].y, rings[k].r - rings[k - 1].r);
-    return acc;
-  };
-  const arc = rings.map((_, i) => arcOf(i));
-  // u wraps: the tile count round the body is rounded to an integer, or the noise field
-  // tears at the seam. 496 mm of circumference against a 64 mm tile wants 7.75, so 8.
-  const uTiles = Math.max(1, Math.round((TAU * rings[0].r) / BRUSH_TILE));
-
-  for (let i = 0; i < rows; i++) {
-    const { y, r, outer } = rings[i];
-    const c = channelCentreAngle(y);
-    const inBand = outer && y >= CHANNEL.yMin && y <= CHANNEL.yMax;
-    for (let j = 0; j < cols; j++) {
-      const a = c + U[j];
-      const o = i * cols + j;
-      let f = CH_OUT;
-      let rr = r;
-      if (inBand) {
-        f = (U[j] * r) / channelHalf(y);
-        rr = r - slotCut(f);
-      }
-      pos[o * 3] = rr * Math.cos(a);
-      pos[o * 3 + 1] = y;
-      pos[o * 3 + 2] = rr * Math.sin(a);
-      uv[o * 2] = ((U[j] - U[0]) / TAU) * uTiles;
-      uv[o * 2 + 1] = arc[i] / BRUSH_TILE;
-      groove[o] = f;
-    }
-  }
-  for (let i = 0; i < rows - 1; i++) {
-    for (let j = 0; j < cols - 1; j++) {
-      const a = i * cols + j, b = a + 1, c2 = a + cols, d = c2 + 1;
-      idx[t3++] = a; idx[t3++] = c2; idx[t3++] = b;
-      idx[t3++] = b; idx[t3++] = c2; idx[t3++] = d;
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  g.setAttribute('aGroove', new THREE.BufferAttribute(groove, 1));
-  g.setIndex(new THREE.BufferAttribute(idx, 1));
-  g.computeVertexNormals();
-  return g;
-}
-
-/* ---------- what the channel emits ----------
-   The diffuser is a source, so it is emission — but it is emission *inside a slot*, and a
-   slot is a small hole with a big lip. Two things follow, and neither of them is a stripe:
-   the glow is gated by whether the camera can actually see down the hole, and the metal
-   around it is occluded by the same hole. Both are computed here from the geometry that
-   the vertex buffer already carries, so the light cannot disagree with the shape. */
-
-const CH = {
-  uGlowColor: { value: new THREE.Color(0xffb464) },
-  // how hard the tube lights the metal it is lying in. This is a *bounce*, not a source:
-  // the source is the tube. It is small deliberately — the old term was the source and
-  // had to carry the whole effect, which is why it was pushed to 1.85 and still read as
-  // one pixel wide.
-  uInterior: { value: 0.16 },
-  // where the direction of the key is, in the object's own frame (a uniform, not a constant:
-  // the object turns, the room does not, and the shadowed wall has to change sides with it)
-  uKeyLocal: { value: new THREE.Vector3(-0.60, 0.77, 0.55) },
-};
-
-function channelify(material) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlowColor = CH.uGlowColor;
-    shader.uniforms.uInterior = CH.uInterior;
-    shader.uniforms.uKeyLocal = CH.uKeyLocal;
-    shader.vertexShader = 'attribute float aGroove;\nvarying float vGroove;\nvarying vec3 vLocal;\nvarying vec3 vWorldPos;\nvarying vec3 vWorldN;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGroove = aGroove;\n  vLocal = position;\n  vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n  vWorldN = normalize(mat3(modelMatrix) * vec3(position.x / 1.24, 0.0, position.z));'
-    );
-    shader.fragmentShader = [
-      'varying float vGroove;',
-      'varying vec3 vLocal;',
-      'varying vec3 vWorldPos;',
-      'varying vec3 vWorldN;',
-      'uniform vec3 uGlowColor; uniform float uInterior;',
-      'uniform vec3 uKeyLocal;',
-      shader.fragmentShader
-        /* the profile of the cut, as shading: how deep this fragment sits, and which of
-           the two walls it is on. The depth comes from the same four facets slotCut()
-           puts into the mesh, so the dark band and the geometry cannot drift apart. */
-        .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
-          float vAbs = abs(vGroove);
-          float vAA = max(fwidth(vGroove) * 1.5, 0.004);
-          // How far down the slot the camera can actually see. The groove faces outward, so
-          // at the helix's grazing arcs you are looking past the lip, not into the hole: the
-          // light in the throat is hidden and only the chamfer is left. Without this the
-          // shader paints the same tan band along the whole helix — the measured tell of a
-          // "painted line". The radius is divided by the group's x-scale before the world
-          // rotation so the normal is the surface's, not the ellipsoid's.
-          vec3 vNOut = normalize(vWorldN);
-          float vSee = clamp(dot(vNOut, normalize(cameraPosition - vWorldPos)), 0.0, 1.0);
-          float vOpen = 0.16 + 0.84 * pow(vSee, 1.35);
-          float vDeep = vAbs < 0.80
-            ? mix(1.0, 0.22, smoothstep(0.52 - vAA, 0.80 + vAA, vAbs))
-            : 0.22 * (1.0 - smoothstep(0.80 - vAA, 1.0 + vAA, vAbs));
-          // the two walls do not take the same light. The one whose face turns toward the
-          // key is lit; the one turning away sits in the far lip's shadow. Read off
-          // uKeyLocal, so it flips as the object turns instead of being baked left/right.
-          vec3 vAcross = normalize(vec3(-vLocal.z, 0.0, vLocal.x) + vec3(1e-5));
-          float vFacing = dot(-sign(vGroove) * vAcross, uKeyLocal);
-          float vWall = smoothstep(0.50, 0.62, vAbs);
-          float vWallLight = mix(1.0, mix(0.30, 1.0, clamp(vFacing * 0.5 + 0.5, 0.0, 1.0)), vWall);
-          // depth occlusion, measured off the waist of the profile: 0.12 on the floor
-          // (it sees one wall and one lip), near 1 at the lip
-          float vOcc = mix(0.055, 0.80, pow(1.0 - vDeep, 0.85)) * vWallLight * mix(0.35, 1.0, vSee);
-          // the shoulder immediately outside the lip sits in the chamfer's shadow
-          float vShoulder = exp(-pow((vAbs - 1.12) / 0.17, 2.0));
-          diffuseColor.rgb *= (1.0 - 0.40 * vShoulder);
-        `)
-        .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
-          // the floor is machined, the wall is machined, and the 1.1 mm chamfer is the
-          // facet the cutter polished: that difference in roughness is the crisp line
-          // along the edge. A single roughness for the whole slot has no edge, only a dip.
-          float vCutW = 1.0 - smoothstep(0.99, 1.03, vAbs);
-          float vRough = vAbs < 0.80 ? 0.54 : mix(0.54, 0.30, smoothstep(0.80, 0.94, vAbs));
-          roughnessFactor = mix(roughnessFactor, vRough, vCutW);
-          // a real casting has a roughness *gradient*, not one value: the waist is where a
-          // portable lamp is carried, so it polishes; the foot and shoulder stay as blasted.
-          // Smooth in height, so it cannot stripe the way a texture would.
-          float vHandle = exp(-pow((vLocal.y - 0.150) / 0.078, 2.0));
-          roughnessFactor = clamp(roughnessFactor * mix(1.16, 0.80, vHandle), 0.16, 0.64);
-        `)
-        .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
-          // occluded metal: inside the cut it stops mirroring the warm room back out
-          metalnessFactor = mix(metalnessFactor, 0.42, vCutW * (1.0 - 0.5 * smoothstep(0.52, 0.80, vAbs)));
-        `)
-        .replace('#include <aomap_fragment>', /* glsl */`#include <aomap_fragment>
-          // occlusion on a *metal* has to reach the specular, not the albedo: multiplying
-          // the diffuse term of a metalness-1 surface darkens nothing at all
-          reflectedLight.indirectDiffuse *= vOcc;
-          reflectedLight.indirectSpecular *= vOcc;
-          reflectedLight.directDiffuse *= mix(1.0, vOcc, 0.6);
-          reflectedLight.directSpecular *= mix(1.0, vOcc, 0.85);
-        `)
-        .replace('#include <emissivemap_fragment>', /* glsl */`#include <emissivemap_fragment>
-          // What this term describes is the light the tube throws back onto the metal it
-          // lies in — and it has to stop at the lip. Pass 5 shipped a vCatch that peaked
-          // *at* the lip, so the brightest thing in the slot was the lip itself: that is
-          // why a 13.7 px aperture measured as a 3-4 px pale drawn line with no throat.
-          // The catch now rises from the floor, holds along the wall, and dies before the
-          // chamfer, so the lip is metal and the light is inside the hole.
-          float vCatch = smoothstep(0.16, 0.52, vAbs) * (1.0 - smoothstep(0.88, 0.99, vAbs)) * vCutW;
-          totalEmissiveRadiance += uGlowColor * uInterior * vCatch * vOpen;
-          // ...and the light does not stop at the lip. A source in a slot paints a warm
-          // gradient on the metal either side of it, and that gradient is the difference
-          // between "a warm line" and "a line that is emitting". This is the near-field
-          // skirt only (e-folding at ~3 mm); the room-scale spill is the wall/floor
-          // integral below. Without it the slot measured 62 counts of amber and still
-          // read as paint, because nothing outside the opening had changed.
-          float vOut = max(0.0, vAbs - 1.0);
-          float vHalo = exp(-vOut * 2.0) * (1.0 - smoothstep(3.4, 3.9, vAbs));
-          totalEmissiveRadiance += uGlowColor * uInterior * 0.95 * vHalo * mix(0.35, 1.0, vSee);
-        `),
-    ].join('\n');
-  };
-  material.customProgramCacheKey = () => 'vesper-channel-v3';
-  return material;
 }
 
 /* ---------- the light the channel throws ----------
@@ -812,6 +481,11 @@ export function createStage(canvasEl, opts = {}) {
       else setTimeout(r, 0);
     });
     try {
+      /* The object arrives over the network. Wait for it here, before the compile pass,
+         so the first painted live frame already has the shell, the slot and the light
+         pipe in it instead of three invisible placeholders — and so the crossfade from
+         the poster lands on the same object the poster shows. */
+      await assetLoaded;
       /* compileAsync is not the answer here: it calls this.compile() synchronously
          first and only polls for the *link* afterwards, so the front-end cost stays in
          one task. Compile one mesh per task instead: the program cache means shared
@@ -1002,108 +676,103 @@ export function createStage(canvasEl, opts = {}) {
   const group = new THREE.Group();
   scene.add(group);
 
-  const bodyGeo = shellGeometry();
-  if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:t-shell');
-  const brushed = brushedNormal();
-  const bodyMat = channelify(new THREE.MeshStandardMaterial({
-    // starts where the Foundry finish sits, so the first frame is not a different material
+  /* ---------- the body, as an authored asset ----------
+     Everything above this line is the room. The object is not built here any more: it is
+     a Blender-authored glTF (tools/asset/build_vesper.py) whose slot is real geometry — a
+     14 mm opening, a 45 deg lip chamfer, a 0.45 mm lip land, a 5 deg draft throat and a
+     6.5 mm floor — with a separate emissive light-pipe strip recessed below the lip plane,
+     so the metal occludes the source by depth test instead of by a shader gate. Its five
+     maps come from one 2K bake (AO, tangent normal, curvature-bent roughness, cast mottle)
+     in the same atlas, so the shell, plinth and dial share one texture set.
+
+     Two consequences worth stating, because both were the whole problem in pass 5:
+       * the glow can no longer be drawn anywhere the geometry does not allow. The pipe is
+         4 mm behind the lip; from a grazing hero angle the lip hides it and the slot reads
+         as a dark milled line with light in the bottom, which is what the object is;
+       * nothing here is tuned per-pixel. The finish multiplies the baked maps, so switching
+         to Umber or Slate changes the metal without touching the micro-structure. */
+  /* A build tag, not decoration: the exported GLB is cached by path, and a returning
+     visitor would otherwise keep the previous body for as long as the header allows.
+     Bump it whenever the .glb changes. */
+  const ASSET_URL = new URL('../assets/vesper-01.glb?v=7', import.meta.url).href;
+  const placeholder = () => new THREE.BoxGeometry(1e-4, 1e-4, 1e-4);
+
+  const bodyMat = new THREE.MeshStandardMaterial({
     color: 0xb6bac0, metalness: 1.0, roughness: 0.50,
-    // 0.50 put a 4 mm tool mark at 6.6 px, which is a stripe, not a finish: measured at
-    // 1:1 it carried +/-4 levels of row-to-row signal. 0.22 is under the eye's threshold.
-    normalMap: brushed, normalScale: new THREE.Vector2(0.22, 0.22),
     side: THREE.DoubleSide,
-  }));
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.castShadow = true;
-  body.receiveShadow = true;
-  group.add(body);
-
-  /* plinth — no channel in it, so it takes the same finish without the slot shader.
-     It used to be `bodyMat.clone()`, which carried channelify() with it; the lathe has no
-     aGroove attribute, so the attribute defaulted to 0 and the shader read the plinth as
-     "inside the cut" — full depth, cut roughness, and the emissive bounce term. A cast
-     aluminium plinth should simply be the same finish as the body. */
-  const plinthProfile = [
-    [0.0, 0.0000], [0.0, 0.0968], [0.0042, 0.0982], [0.0146, 0.0980],
-    [0.0178, 0.0962], [0.0194, 0.0898], [0.0200, 0.0790], [0.0194, 0.0712],
-    [0.0, 0.0],
-  ].map(([y, r]) => new THREE.Vector2(r, y));
-  const plinthGeo = new THREE.LatheGeometry(plinthProfile, 240);
+  });
   const plinthMat = bodyMat.clone();
-  plinthMat.onBeforeCompile = () => {};
-  plinthMat.customProgramCacheKey = () => 'vesper-plinth';
-  const plinth = new THREE.Mesh(plinthGeo, plinthMat);
-  plinth.castShadow = true;
-  plinth.receiveShadow = true;
-  group.add(plinth);
+  const dialMat = new THREE.MeshStandardMaterial({
+    color: 0xa4a9ae, metalness: 1.0, roughness: 0.38, envMapIntensity: 1.2,
+  });
+  /* the diffuser's own material: emission, and a near-black albedo so the environment
+     cannot add diffuse on top of it and desaturate it through ACES */
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0x140c06, emissive: new THREE.Color(0xff7a1e), emissiveIntensity: 0.5,
+    roughness: 1.0, metalness: 0.0, side: THREE.DoubleSide,
+  });
 
-  const dial = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0986, 0.0986, 0.0090, 140, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0xa4a9ae, metalness: 1.0, roughness: 0.38, envMapIntensity: 1.2 })
-  );
-  dial.position.y = 0.0094;
-  group.add(dial);
+  const body = new THREE.Mesh(placeholder(), bodyMat);
+  const plinth = new THREE.Mesh(placeholder(), plinthMat);
+  const dial = new THREE.Mesh(placeholder(), dialMat);
+  const opal = new THREE.Mesh(placeholder(), coreMat);
+  for (const o of [body, plinth, dial, opal]) {
+    o.visible = false;
+    o.castShadow = o !== opal;
+    o.receiveShadow = true;
+    group.add(o);
+  }
+  if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:t-shell');
 
-  /* the light that escapes the slot: sits just outside the shell, follows the seam.
-     This is what makes the object read as the source instead of a backlit prop. */
+  let assetReady = false;
+  const assetLoaded = new GLTFLoader().loadAsync(ASSET_URL).then((gltf) => {
+    const src = gltf.scene;
+    const take = (name) => src.getObjectByName(name);
+    const shell = take('Shell');
+    const pipe = take('LightPipe');
+    const base = take('Plinth');
+    const ring = take('Dial');
+    if (!shell || !pipe) throw new Error('vesper asset: shell/lightpipe missing');
+    /* one material, four meshes, one atlas: the maps are the bake's, the scalars are the
+       finish's. metalnessMap.b is 1 everywhere, so material.metalness stays the finish's
+       number; roughnessMap.g is 0.56-1.00 and only ever pulls roughness down where the
+       bake found a burnished edge. */
+    const sm = shell.material;
+    for (const [m, mats] of [[bodyMat, sm], [plinthMat, sm], [dialMat, sm]]) {
+      m.map = sm.map;
+      m.normalMap = sm.normalMap;
+      m.aoMap = sm.aoMap;
+      m.roughnessMap = sm.roughnessMap;
+      m.metalnessMap = sm.metalnessMap;
+      if (sm.normalScale) m.normalScale.copy(sm.normalScale);
+      m.needsUpdate = true;
+    }
+    dialMat.roughness = 0.38;
+    dialMat.color.set(0xa4a9ae);
+    body.geometry = shell.geometry;
+    plinth.geometry = base ? base.geometry : placeholder();
+    dial.geometry = ring ? ring.geometry : placeholder();
+    opal.geometry = pipe.geometry;
+    for (const o of [body, plinth, dial, opal]) o.visible = true;
+    assetReady = true;
+    return gltf;
+  }).catch((err) => {
+    /* the room stays; the object is absent rather than wrong */
+    console.error('vesper asset failed to load', err);
+    return null;
+  });
+
+  /* the light that leaves the slot, and the kiss at the plinth. These are millimetres
+     from the metal, where three's 1/r^2 multiplies whatever they are set to by 10^4, so
+     they are set by measurement (see update()) and not by feel. The seam's *shape* on the
+     floor and the wall is drawn by the two spill shaders, which integrate this same
+     helix; these two points only add the local falloff the integral cannot see. */
   const slotLight = new THREE.PointLight(0xffb464, 1.0, 0.62, 2);
   slotLight.position.set(0, 0.5 * (CHANNEL.yMin + CHANNEL.yMax), 0);
   group.add(slotLight);
-
   const slotLightLow = new THREE.PointLight(0xffb464, 0.45, 0.50, 2);
   slotLightLow.position.set(0, 0.075, 0);
   group.add(slotLightLow);
-
-  /* the diffuser core is expressed in the shader (the groove floor emits), so this
-     material is only a holder for the emitted colour and level */
-  const coreMat = new THREE.MeshStandardMaterial({
-    // 2400 K through an opal, and *below* the point where ACES desaturates it to white:
-    // at emissiveIntensity 2.4 the tube's linear value (2.4, 1.5, 0.6) tone-maps to
-    // (247, 240, 214) — a pale drawn line. Measured, over four captures, as "no amber".
-    // the base colour has to be dark: a cream albedo under a 13-stop environment card
-    // adds more diffuse than the emissive does, and ACES then desaturates the sum. The
-    // tube is *emission*, so it gets an almost-black albedo and a linear value near 0.5 —
-    // the region where ACES still returns orange instead of the cream it returns at 1.3.
-    color: 0x140c06, emissive: new THREE.Color(0xff7a1e), emissiveIntensity: 0.5,
-    roughness: 1.0, metalness: 0.0,
-    // Measured, not guessed: with the default FrontSide the whole tube was culled, so the
-    // "emitter" of pass 5 contributed nothing to any frame — the pale band everyone read
-    // as the diffuser was the lip chamfer catching the studio card. TubeGeometry's winding
-    // on this curve is inverted; a diffuser has no inside worth culling, so draw both.
-    side: THREE.DoubleSide,
-  });
-
-  /* ---------- the diffuser, as an object ----------
-     The gap has to be *visibly* the source, and it could not be, because there was
-     nothing there to see: the emitter was a term in the shell's own emissive output,
-     gated to |f| < 0.2 — 0.9 mm of arc, which the hero resolves as one pixel. That is
-     why raising uGlow from 0.45 to 1.85 moved the groove by less than one count. The
-     mask was never the fault; a sub-pixel element cannot be made to read by turning it
-     up.
-
-     So the diffuser is geometry now: a tube of 4.8 mm section laid along the helix, 3.4 mm
-     below the outer surface, inside a slot 5 mm deep. The metal lips occlude it by depth
-     test rather than by a shader gate, so it disappears round the silhouette for free and
-     cannot glow through the far side; seen through the 9 mm aperture it is 4.8 mm of
-     bright opal, which is 5 px at the hero and 56 px at the macro. It turns with the group,
-     so it is the same object the spill samples are read from. */
-  /* TubeGeometry reaches for the point through getPointAt(), which may not pass a target:
-     give the sampler one of its own rather than assuming the caller supplied it. */
-  const helical = (t, target = new THREE.Vector3()) => {
-    const y = CHANNEL.yMin + 0.004 + (CHANNEL.yMax - CHANNEL.yMin - 0.008) * t;
-    const a = channelCentreAngle(y);
-    const r = Math.max(0.012, outerRadius(y) - 0.0009 - OPAL_R);
-    return target.set(r * Math.cos(a), y, r * Math.sin(a));
-  };
-  class Helix extends THREE.Curve {
-    getPoint(t, target = new THREE.Vector3()) { return helical(t, target); }
-  }
-  const OPAL_R = 0.0044;      // 8.8 mm opal tube, crown 0.9 mm under the lip plane:
-                            // 13 px of visible chord through a 23.5 px aperture
-  const opal = new THREE.Mesh(new THREE.TubeGeometry(new Helix(), 260, OPAL_R, 8, false), coreMat);
-  opal.castShadow = false;
-  opal.receiveShadow = true;
-  group.add(opal);
 
   // oval plan
   const groupScaleX = 1.24;
@@ -1200,10 +869,11 @@ export function createStage(canvasEl, opts = {}) {
        what happens if the phase already carries the orbit) leaves the floor pattern
        nailed to the room while the object turns under it. */
     const y = CHANNEL.yMin + (CHANNEL.yMax - CHANNEL.yMin) * t;
-    // the emitter line is the tube, so the spill is sampled from the geometry that is
-    // actually glowing rather than from a radius picked to look right
-    const r = Math.max(0.01, outerRadius(y) - 0.0009 - 0.0044);   // the tube's axis, not a
-                                                                  // radius picked to look right
+    // the light leaves through the 14 mm opening, 1 mm inside the untouched surface, so
+    // that is where the line source sits. It used to be the opal tube's axis, 5.3 mm in;
+    // the recess moves the emission outward, which is what puts the spill's inner edge
+    // closer to the object instead of under its own shadow.
+    const r = Math.max(0.01, outerRadius(y) - 0.0010);
     const a = CHANNEL.phase + t * CHANNEL.turns * TAU;
     const ca = Math.cos(a), sa = Math.sin(a);
     const [ex, ez] = _rot(r * ca * groupScaleX, r * sa, state.orbit);
@@ -1316,15 +986,11 @@ export function createStage(canvasEl, opts = {}) {
     const i = state.intensity;
     // the diffuser is a real tube in the trench now, so its own brightness is set here and
     // the shell's bounce stays an order of magnitude below it
-    coreMat.emissiveIntensity = 1.05 + i * 0.65;   // hot enough to read as the source
-    CH.uGlowColor.value.copy(coreMat.emissive);
-    // Pass 4 — the shell's emissive term stopped being the source and became the bounce
-    // off the tube (0.16 * a facet term). Pass 3c had to push it to 1.85 because it was
-    // the whole effect and it was still sub-pixel; the fix was to give the slot something
-    // to look at, not to turn the term up further.
-    // the diffuser is white-hot at the crown and the *walls* around it are what read as
-    // amber; at 0.10 the throat was metal with a pale stripe in it
-    CH.uInterior.value = 0.26 + i * 0.30;
+    /* 1.05..1.70 was set when the diffuser was 4 mm down a 6.5 mm slot and had to fight
+       the lip's shadow. The blade now sits 0.2 mm under the lip land, so its own pixels
+       are the brightest thing in the frame at a *quarter* of that: measured through ACES,
+       1.6 returns (247,240,214) — a pale line, no amber — while 0.55-0.8 keeps the hue. */
+    coreMat.emissiveIntensity = 1.20 + i * 0.40;
     // The slot's own bounce stays tiny. These lights sit ~5 mm from the metal, where three's
     // 1/r² multiplies the intensity by 4*10^4: pass 2's "0.34" was a floodlight painting the
     // body amber, which is how a white studio produced a bronze macro. The light the seam
@@ -1366,13 +1032,6 @@ export function createStage(canvasEl, opts = {}) {
 
     // the slot turns with the object, because it is part of the object
     group.rotation.y = state.orbit;
-    // ...and so does the key's direction in the object's own frame. Without this the wall
-    // of the groove that is in shadow stays on the same side of the object as you turn it,
-    // which is the tell that the shadow is painted rather than cast.
-    {
-      const [kx, kz] = _rot(-1.25, 1.15, -state.orbit);
-      CH.uKeyLocal.value.set(kx / groupScaleX, 1.95, kz).normalize();
-    }
     state.seamPhase = CHANNEL.phase + state.orbit;
     state.phase = state.seamPhase;
     updateEmitters(wallA, state.seamPhase, state.orbit);
@@ -1433,9 +1092,6 @@ export function createStage(canvasEl, opts = {}) {
              cx: Math.round((r.left + r.right) / 2), cy: Math.round((r.top + r.bottom) / 2) };
   }
 
-  /* the cut, measured off the real vertex buffer — what tools/verify.mjs asserts on.
-     outerRadius() is the smooth profile the lathe used to follow; the difference is
-     the depth of the recess, so it cannot be a shader effect that reports itself. */
   /* where the light actually leaves the object: used to prove the spill is the seam's
      spill and not a pool that happens to sit under it */
   function spillProbe() {
@@ -1449,35 +1105,68 @@ export function createStage(canvasEl, opts = {}) {
     };
   }
 
+  /* the cut, measured off the loaded vertex buffer — what tools/verify.mjs asserts on.
+     There is no aGroove attribute any more: the recess is the mesh's shape, so the probe
+     finds it the only way it can be found, by comparing each vertex's radius with the
+     untouched profile at that height. A vertex is "in the cut" when it sits between
+     0.08 mm and 9 mm inside that profile — the upper bound is the 11 mm wall, which keeps
+     the shell's inner surface from being mistaken for the floor. */
+  const CUT_MIN = 0.00008, CUT_MAX = 0.0090;
   function grooveProbe(atY) {
-    const p = bodyGeo.getAttribute('position');
-    const g = bodyGeo.getAttribute('aGroove');
-    /* the rings are not evenly spaced, so snap to the ring nearest the height asked
-       for rather than requiring one inside a tolerance */
+    const geo = body.geometry;
+    const p = geo && geo.getAttribute('position');
+    if (!p) {
+      return { at: atY, samples: 0, ringY: null, floorRadius: null,
+               profileRadius: +outerRadius(atY).toFixed(5), depth: null,
+               halfWidth: null, shoulderRadius: null, vertices: 0 };
+    }
+    const depthAt = (i) => outerRadius(p.getY(i)) - Math.hypot(p.getX(i), p.getZ(i));
     let row = null, best = Infinity;
     for (let i = 0; i < p.count; i++) {
-      if (Math.abs(g.getX(i)) > 0.24) continue;
-      const d = Math.abs(p.getY(i) - atY);
-      if (d < best - 1e-6) { best = d; row = p.getY(i); }
+      const d = depthAt(i);
+      if (d < CUT_MIN || d > CUT_MAX) continue;
+      const dy = Math.abs(p.getY(i) - atY);
+      if (dy < best - 1e-9) { best = dy; row = p.getY(i); }
     }
-    let floor = Infinity, outer = 0, n = 0;
+    let floor = Infinity, outer = 0, n = 0, azSum = 0, azN = 0;
     if (row !== null) {
       for (let i = 0; i < p.count; i++) {
-        if (Math.abs(g.getX(i)) > 0.24) continue;
-        if (Math.abs(p.getY(i) - row) > 1e-6) continue;
+        if (p.getY(i) !== row) continue;
+        const x = p.getX(i), z = p.getZ(i), r = Math.hypot(x, z);
+        const d = outerRadius(row) - r;
+        if (d < CUT_MIN || d > CUT_MAX) continue;
         n++;
-        floor = Math.min(floor, Math.hypot(p.getX(i), p.getZ(i)));
-        outer = Math.max(outer, Math.hypot(p.getX(i), p.getZ(i)));
+        if (r < floor) floor = r;
+        if (r > outer) outer = r;
+      }
+      /* the slot's centre is the middle of its floor, which is the flattest and deepest
+         part of the section */
+      for (let i = 0; i < p.count; i++) {
+        if (p.getY(i) !== row) continue;
+        const r = Math.hypot(p.getX(i), p.getZ(i));
+        if (outerRadius(row) - r > 0.0045) { azSum += Math.atan2(p.getZ(i), p.getX(i)); azN++; }
       }
     }
-    // the profile the lathe would have followed with no channel cut into it
     const prof = outerRadius(row === null ? atY : row);
+    let half = null;
+    if (azN) {
+      const c = azSum / azN;
+      half = 0;
+      for (let i = 0; i < p.count; i++) {
+        if (p.getY(i) !== row) continue;
+        const x = p.getX(i), z = p.getZ(i), r = Math.hypot(x, z);
+        if (prof - r < CUT_MIN) continue;
+        let da = Math.atan2(z, x) - c;
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        half = Math.max(half, Math.abs(da) * prof);
+      }
+    }
     return {
       at: atY, samples: n, ringY: row === null ? null : +row.toFixed(5),
       floorRadius: floor === Infinity ? null : +floor.toFixed(5),
       profileRadius: +prof.toFixed(5),
       depth: floor === Infinity ? null : +(prof - floor).toFixed(5),
-      halfWidth: +(channelHalf(row === null ? atY : row)).toFixed(5),
+      halfWidth: half === null ? null : +half.toFixed(5),
       shoulderRadius: outer ? +outer.toFixed(5) : null,
       vertices: p.count,
     };
@@ -1497,15 +1186,38 @@ export function createStage(canvasEl, opts = {}) {
       if (rr > rMax) rMax = rr;
     }
     const midY = 0.5 * (CHANNEL.yMin + CHANNEL.yMax);
+    /* the pipe's width, measured across the strip at mid height rather than declared */
+    /* the strip's width is measured across the helix, so each vertex's azimuth is
+       compared with the helix's own centre at that same height first; without that the
+       advance of the helix over the sampling window reads as width */
+    let row = null, near = Infinity;
+    for (let i = 0; i < p.count; i++) {
+      const dy = Math.abs(p.getY(i) - midY);
+      if (dy < near - 1e-9) { near = dy; row = p.getY(i); }
+    }
+    let offMin = Infinity, offMax = -Infinity, crown = 0;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y !== row) continue;
+      const r = Math.hypot(p.getX(i), p.getZ(i));
+      let da = Math.atan2(p.getZ(i), p.getX(i)) - channelCentreAngle(y);
+      da = Math.atan2(Math.sin(da), Math.cos(da));
+      const off = da * r;
+      if (off < offMin) offMin = off;
+      if (off > offMax) offMax = off;
+      crown = Math.max(crown, r);
+    }
+    const section = offMax - offMin;
     return {
-      visibleSection: +(2 * OPAL_R).toFixed(5),
-      apertureFraction: +((2 * OPAL_R) / CHANNEL.aperture).toFixed(3),
-      lipClearance: +(CHANNEL.depth - 0.0016 - OPAL_R).toFixed(5),
+      visibleSection: +section.toFixed(5),
+      apertureFraction: +(section / CHANNEL.aperture).toFixed(3),
+      lipClearance: +(outerRadius(midY) - crown).toFixed(5),
       yMin: +bb.min.y.toFixed(4), yMax: +bb.max.y.toFixed(4),
       midRadius: +(rMin).toFixed(5),
       profileAtMid: +outerRadius(midY).toFixed(5),
       vertices: p.count,
       emissiveIntensity: +coreMat.emissiveIntensity.toFixed(3),
+      loaded: assetReady,
     };
   }
 
@@ -1513,7 +1225,7 @@ export function createStage(canvasEl, opts = {}) {
     scene, camera, renderer, group, body, bodyMat, plinthMat, coreMat, opal, state,
     update, resize, compile, dispose: () => renderer.dispose(), isSettled, isCompiled: () => compiled,
     setFinish, setAtmosphere, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle,
-    objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => ringStack().length,
+    objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => (body.geometry && body.geometry.getAttribute('position') ? body.geometry.getAttribute('position').count : 0),
     wallSpill, floorPool, wallSpillMat, floorPoolMat,
     CHANNEL, outerRadius,
   };
