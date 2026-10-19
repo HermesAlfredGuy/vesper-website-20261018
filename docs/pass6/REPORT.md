@@ -89,6 +89,13 @@ drawn on it".
 - All numbers above were taken under SwiftShader (ANGLE/SwiftShader on this container). They are
   evidence about the asset and the probes, not about the owner's GPU.
 
+## Live
+
+Deployed with `tools/deploy.sh`; Pages build green. Live parity checked by hash on
+`assets/vesper-01.glb` (238b8b66774f) and the three vendored modules, and by probe against the
+live URL: 51,643 body vertices, slot depth 6.50 mm, blade crown 1.35 mm, baked maps bound.
+Frame: `docs/pass6/shots/live-hero.png`.
+
 ## Reproducing
 
 ```
