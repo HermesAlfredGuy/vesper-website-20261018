@@ -157,8 +157,8 @@ without one.
 - Overflow: `scrollWidth == innerWidth` at 360 / 390 / 414.
 - Deployed with `bash tools/deploy.sh`; the commit is on `origin/main`.
   **Live byte parity is still pending**: GitHub's `pages build and deployment` workflow has
-  been stuck in `queued` since the push (two attempts, 27 and 8 minutes at the time of
-  writing, nothing running), while the previously deployed build — pass 3 — is still what
+  been stuck in `queued` since the push (four attempts, 27 minutes and counting, nothing
+  running), while the previously deployed build — pass 3 — is still what
   `hermesalfredguy.github.io` serves. `sha256sum` of the live `js/scene3d.js`
   (`5b573fc3…`) differs from the working tree (`13eecbd6…`). This is a queue on GitHub's
   side, not a failing gate: the local gates are green (39/39 and 20/20). Re-run
