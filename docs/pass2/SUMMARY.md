@@ -1,7 +1,5 @@
 # VESPER — pass 4/5 summary
 
-Measured detail: `docs/pass2/REPORT.md`.
-
 **Finish.** Ablation put the banding in the normal map, not the polygons:
 nulling `normalMap` dropped macro rms 0.103→0.004, deleting the channel shader changed
 nothing. The map carried 1 200 rings at a 0.26 mm pitch — a stripe every 1/11 px at the hero.
