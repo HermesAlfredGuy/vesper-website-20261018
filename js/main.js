@@ -359,6 +359,7 @@ function paintRail(i) {
    starves on a slow renderer: the states would lag by seconds or never arrive. A
    scroll handler cannot be starved, and this is cheap arithmetic. */
 let activeIndex = 0;
+let syncY = -1;
 const reserveSec = $('#reserve');
 function syncChapter() {
   const mid = window.scrollY + window.innerHeight * 0.5;
@@ -405,6 +406,12 @@ function frame(now) {
   const raw = (now - last) / 1000;
   last = now;
   const dt = clamp(Number.isFinite(raw) ? raw : 0.016, 0, 0.05);
+  /* The scroll event is a task on the main thread, and a WebGL frame here can take a
+     second: while the thread is inside a frame the event waits, and any reader of the
+     state (a screenshot, an audit, a person who scrolled and stopped) sees the previous
+     chapter. Re-deriving it on the frame as well makes the state converge in one frame
+     whatever the event loop is doing; it is a few class toggles. */
+  if (window.scrollY !== syncY) { syncY = window.scrollY; syncChapter(); }
 
   if (stage && now - lastRender >= MIN_FRAME_MS) {
     lastRender = now;
