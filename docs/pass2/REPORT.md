@@ -155,7 +155,15 @@ without one.
 - `tools/verify.mjs`: **39/39 passed** (desktop, mobile, reduced motion, no-WebGL).
 - `tools/finish-test.mjs`: 20/20.
 - Overflow: `scrollWidth == innerWidth` at 360 / 390 / 414.
-- Deployed with `bash tools/deploy.sh`; live sha256 parity checked against the local files.
+- Deployed with `bash tools/deploy.sh`; the commit is on `origin/main`.
+  **Live byte parity is still pending**: GitHub's `pages build and deployment` workflow has
+  been stuck in `queued` since the push (two attempts, 27 and 8 minutes at the time of
+  writing, nothing running), while the previously deployed build — pass 3 — is still what
+  `hermesalfredguy.github.io` serves. `sha256sum` of the live `js/scene3d.js`
+  (`5b573fc3…`) differs from the working tree (`13eecbd6…`). This is a queue on GitHub's
+  side, not a failing gate: the local gates are green (39/39 and 20/20). Re-run
+  `bash tools/deploy.sh` once the queue drains and the byte comparison at the end of that
+  script is the confirmation.
 
 Files touched: `js/scene3d.js`, `js/main.js`, `css/site.css`, plus
 `tools/{finish-test,perf-one,perf-frames,interaction-film,silhouette.html,shot,probe-shot,ablate,overflow-*}.mjs`
