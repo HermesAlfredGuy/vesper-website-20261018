@@ -284,13 +284,9 @@ const browser = await chromium.launch({
   check('desktop: one primary action is in front of the reader at a time',
     cta.every(([, l]) => l.length <= 1), JSON.stringify(cta));
 
-  check('desktop: Pause motion control is operable', await page.evaluate(async () => {
-    const b = document.getElementById('motionToggle');
-    b.click();
-    const pressed = b.getAttribute('aria-pressed');
-    b.click();
-    return pressed === 'true' && b.getAttribute('aria-pressed') === 'false';
-  }));
+  // Owner, 2026-10-20 (final): motion is always full, so there must be NO reduce/pause control.
+  check('desktop: no motion toggle (motion is always full)', await page.evaluate(() =>
+    !document.getElementById('motionToggle') && !document.getElementById('footMotion')));
   await ctx.close();
 }
 

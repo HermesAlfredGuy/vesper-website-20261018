@@ -16,9 +16,8 @@ const smooth = (t) => t * t * (3 - 2 * t);
    page must not read that as a request to go still. The only thing that calms the page is
    the viewer's own toggle, remembered in localStorage as `site-motion`. */
 const MOTION_KEY = 'site-motion';
-let reduced = (() => {
-  try { return localStorage.getItem(MOTION_KEY) === 'reduced'; } catch (e) { return false; }
-})();
+// Owner, 2026-10-20 (final): motion is ALWAYS full: no reduced mode, no toggle, no pause control.
+let reduced = false;
 let ambientOn = !reduced;          // the toggle drives both; kept in step in paintMotion()
 
 const body = document.body;
