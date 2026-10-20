@@ -78,6 +78,7 @@ function sampleStops(center) {
    navigation, copy or controls waits on a GPU. */
 let stage = null;
 let booted = false;
+let stageLive = false;      // the stage has handed over a real frame (see live())
 const stageEl = $('#stage');
 
 function webglOK() {
@@ -95,6 +96,7 @@ function bootStage() {
     console.warn('VESPER: no WebGL in this browser, keeping the still.');
     body.classList.add('no-gl');
     $('#fallback').hidden = false;
+    revealBoot('no-gl');
     return;
   }
   import('./scene3d.js').then((mod) => {
@@ -107,6 +109,7 @@ function bootStage() {
       console.warn('VESPER: realtime stage failed, keeping the still.', err);
       body.classList.add('no-gl');
       $('#fallback').hidden = false;
+      revealBoot('stage-failed');
       return;
     }
     canvas.setAttribute('role', 'img');
@@ -125,6 +128,7 @@ function bootStage() {
     stage.setIntensity(state.intensity);
     stage.settle(true);
     const live = () => {
+      stageLive = true;
       stage.settle(true);
       stage.update(0.016);
       if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:live');
@@ -144,6 +148,7 @@ function bootStage() {
     console.warn('VESPER: could not load the realtime stage, keeping the still.', err);
     body.classList.add('no-gl');
     $('#fallback').hidden = false;
+    revealBoot('import-failed');
   });
 }
 
@@ -282,25 +287,44 @@ turnRange.addEventListener('keydown', (e) => {
   }
 });
 
-/* Desktop: dragging the scene (anywhere that is not text or a control) turns the object.
-   Touch keeps the slider, so vertical scrolling is never hijacked. Attached here, not
-   inside the stage boot — the gesture must work even if the live scene never arrives. */
+/* Dragging the scene turns the object. Mouse drags anywhere that is not text or a control;
+   a finger drags too, but only once the gesture is clearly horizontal — the canvas is
+   touch-action: pan-y, so a vertical swipe is the browser's scroll and must stay that way.
+   The slider (touch + keyboard) is hidden below 1100px, which is exactly where the finger
+   gesture is the only way to turn the object, so both paths have to work. */
 {
   let dragging = false, startX = 0, baseT = 0;
+  let touchPending = false, startY = 0;
   const TEXTY = 'a,button,input,dialog,label,p,h1,h2,h3,li,td,th,dt,dd,figcaption,b,em,img';
   document.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch' || e.button !== 0) return;
+    if (e.pointerType === 'touch') {
+      if (e.target.closest(TEXTY)) return;
+      touchPending = true; dragging = false;
+      startX = e.clientX; startY = e.clientY; baseT = Number(turnRange.value) / 100;
+      return;
+    }
+    if (e.button !== 0) return;
     if (e.target.closest(TEXTY)) return;
     dragging = true; startX = e.clientX; baseT = Number(turnRange.value) / 100;
     document.body.classList.add('is-dragging');
   });
   window.addEventListener('pointermove', (e) => {
+    if (touchPending && !dragging) {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) { touchPending = false; return; }
+      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      dragging = true;
+      document.body.classList.add('is-dragging');
+    }
     if (!dragging) return;
     const t = clamp(baseT + (e.clientX - startX) / 420, -1, 1);
     turnRange.value = String(Math.round(t * 100));
     setOrbit(t);
   });
-  const stop = () => { dragging = false; document.body.classList.remove('is-dragging'); };
+  const stop = () => {
+    dragging = false; touchPending = false;
+    document.body.classList.remove('is-dragging');
+  };
   window.addEventListener('pointerup', stop);
   window.addEventListener('pointercancel', stop);
   window.addEventListener('blur', stop);
@@ -390,6 +414,136 @@ window.addEventListener('scroll', syncChapterAndWake, { passive: true });
 window.addEventListener('resize', syncChapterAndWake, { passive: true });
 syncChapter();
 
+/* ---------- smooth scroll: Lenis, driven by the one frame loop ----------
+   Not a second loop and not a scroll library with its own clock: `frame()` calls
+   `lenis.raf(now)` at the top, Lenis writes the real scroll position, and every reader
+   downstream (`syncChapter`, the camera stops, the progress bar) keeps reading
+   window.scrollY exactly as before. One clock, one position, no drift between them.
+
+   Off under reduced motion, off if the module fails to load, and touch is left native
+   (`syncTouch: false`) so a phone still scrolls the way a phone scrolls. The object's
+   drag is a pointer gesture and never touches the scroll. */
+let lenis = null;
+let lenisModPromise = null;
+
+function loadLenis() {
+  if (reduced) return null;
+  if (!lenisModPromise) lenisModPromise = import('../vendor/lenis.mjs').catch(() => null);
+  return lenisModPromise;
+}
+loadLenis();          // warm it during the boot panel, not on the first gesture
+
+function startSmoothScroll(mod) {
+  if (lenis || reduced) return null;
+  /* the module is usually already resolved: the boot panel has been up for seconds */
+  if (!mod) { loadLenis().then((m) => { if (m) startSmoothScroll(m); }); return null; }
+  try {
+    const Lenis = mod.default;
+    lenis = new Lenis({
+      lerp: 0.1,
+      wheelMultiplier: 1,
+      smoothWheel: true,
+      syncTouch: false,
+      autoRaf: false,          // frame() drives it
+    });
+    lenis.resize();
+    /* exposed the way the stage is: the checks measure the interpolation itself rather
+       than guessing at it from wall-clock samples between slow frames */
+    window.__lenis = lenis;
+    /* in-page anchors glide; the skip link deliberately does not (it moves focus and
+       must land instantly for a keyboard user) */
+    $$('a[href^="#"]').forEach((a) => {
+      if (a.classList.contains('skip')) return;
+      a.addEventListener('click', (e) => {
+        const id = a.getAttribute('href');
+        if (!id || id.length < 2) return;
+        const el = document.querySelector(id);
+        if (!el) return;
+        e.preventDefault();
+        lenis.scrollTo(el, { offset: 0, duration: 1.35 });
+      });
+    });
+    if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:smooth');
+  } catch (e) {
+    console.warn('VESPER: smooth scroll unavailable, native scroll kept.', e);
+    lenis = null;
+  }
+  return lenis;
+}
+
+/* ---------- boot: the wait, designed ----------
+   Two numbers drive the line, both real: the GLB's bytes as they arrive (LoadingManager)
+   and the share of the object's programs that have linked (the stage compiles one mesh at
+   a time). The last few per cent belong to the first two frames actually drawn — a
+   loading screen that finishes before the first rendered frame is a lie the reveal
+   exposes. Falls back to revealing at 14 s: a slow machine should get the poster and a
+   live page rather than a beautiful panel forever. */
+const bootEl = $('#boot');
+const bootPctEl = $('#bootPct');
+const bootStageEl = $('#bootStage');
+const BOOT_COPY = { assets: 'Milling the channel', compile: 'Lighting the slot', frames: 'Opening the room' };
+let bootDone = false;
+let bootShown = 0.04;
+let bootTarget = 0.04;
+let bootCopy = BOOT_COPY.assets;
+let liveFrames = 0;
+let bootTimeout = null;
+
+function paintBoot(v, copy) {
+  /* one number, one property: the fill and its head both read --boot-p, so they cannot
+     disagree about where the light has got to */
+  if (bootEl) bootEl.style.setProperty('--boot-p', Math.max(0, Math.min(1, v)).toFixed(4));
+  if (bootPctEl) bootPctEl.textContent = String(Math.round(v * 100)).padStart(2, '0');
+  if (copy && bootStageEl && copy !== bootCopy) {
+    bootCopy = copy;
+    bootStageEl.textContent = copy;
+  }
+}
+
+function bootFrame() {
+  if (bootDone) return;
+  const s = stage && stage.loadProgress ? stage.loadProgress() : null;
+  if (s) {
+    /* 0-62 % the bytes, 62-96 % the programs; the rest is the first frames */
+    bootTarget = Math.max(bootTarget, Math.min(0.96, s.assets * 0.62 + s.compile * 0.34));
+    paintBoot(bootShown, s.assets < 1 ? BOOT_COPY.assets : s.compile < 1 ? BOOT_COPY.compile : BOOT_COPY.frames);
+  }
+  /* ease, so a chunk that arrives all at once still reads as travel rather than a jump */
+  bootShown += (bootTarget - bootShown) * 0.16;
+  paintBoot(bootShown);
+  requestAnimationFrame(bootFrame);
+}
+paintBoot(bootShown);
+requestAnimationFrame(bootFrame);
+
+function revealBoot(reason) {
+  if (bootDone) return;
+  bootDone = true;
+  if (bootEl) bootEl.dataset.reveal = reason;   // read by tools/qa: which signal opened the page
+  bootTarget = 1;
+  bootShown = 1;
+  paintBoot(1, BOOT_COPY.frames);
+  if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:revealed');
+  if (!bootEl) {
+    document.documentElement.classList.remove('is-boot');
+    startSmoothScroll(null);
+    return;
+  }
+  bootEl.classList.add('is-done');            // the line sweeps into its own end
+  const sweep = reduced ? 60 : 440;
+  setTimeout(() => {
+    bootEl.classList.add('is-out');           // ...then the panel lifts off the hero
+    document.documentElement.classList.remove('is-boot');
+    /* the page is scrollable in this same task, so the first wheel after the reveal has
+       a scroller ready for it instead of hitching on a library that loads on demand */
+    startSmoothScroll(null);
+    setTimeout(() => { bootEl.hidden = true; }, reduced ? 0 : 700);
+    if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:unlocked');
+  }, sweep);
+  if (reason !== 'timeout') clearTimeout(bootTimeout);
+}
+bootTimeout = setTimeout(() => revealBoot('timeout'), 15000);
+
 /* ---------- the loop: one owner, throttled, and never in front of page load ---------- */
 const progressBar = $('#progressBar');
 let last = performance.now();
@@ -410,6 +564,10 @@ function drawProgress() {
 }
 
 function frame(now) {
+  /* Lenis owns the scroll position and this is the only clock it gets. It runs before
+     anything reads scrollY, so a frame never mixes this frame's camera with last
+     frame's position. */
+  if (lenis) lenis.raf(now);
   const raw = (now - last) / 1000;
   last = now;
   const dt = clamp(Number.isFinite(raw) ? raw : 0.016, 0, 0.25);   // scene3d clamps motion
@@ -452,6 +610,18 @@ function frame(now) {
     prev.pos = s.pos; prev.target = s.target; prev.mood = s.mood;
     prev.int = targetInt; prev.orbit = state.orbit;
 
+    /* The reveal waits for the object, not for a promise: two frames on the canvas after
+       the stage reports the GLB applied and its programs linked. Counting frames from the
+       moment the loop starts would reveal placeholder boxes — pass 8's capture tools made
+       exactly that mistake with the poster, and the panel makes it much easier to hide. */
+    if (!bootDone && stageLive) {
+      liveFrames++;
+      const lp = stage.loadProgress ? stage.loadProgress() : { ready: true };
+      const compiled = !stage.isCompiled || stage.isCompiled();
+      const edgesReady = !stage.edgeReady || stage.edgeReady();
+      if (liveFrames >= 2 && lp.ready && compiled && edgesReady) revealBoot('frames');
+    }
+
     /* measure what the frame actually cost, not the gap between frames: the gap
        includes idle waiting and would never fall back on a rested machine */
     if (performance.now() - drewAt > 18) slowFrames++;
@@ -491,7 +661,7 @@ function fit() {
   dirty = true;
 }
 fit();
-window.addEventListener('resize', () => { stops = readStops(); fit(); }, { passive: true });
+window.addEventListener('resize', () => { stops = readStops(); fit(); if (lenis) lenis.resize(); }, { passive: true });
 window.addEventListener('orientationchange', () => { stops = readStops(); fit(); });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { stops = readStops(); dirty = true; });
 

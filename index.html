@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#13100e">
 <link rel="preload" href="assets/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<!-- the page is locked while the boot panel is up; set before first paint so no scroll
+     can happen behind it, and removed the moment the object is live -->
+<script>document.documentElement.classList.add('is-boot')</script>
 <link rel="stylesheet" href="css/site.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2313100e'/%3E%3Cpath d='M10 24 L22 8' stroke='%23ffb464' stroke-width='2.5'/%3E%3C/svg%3E">
 <script type="module" src="js/main.js"></script>
@@ -15,6 +18,26 @@
 <body class="is-tone-dark" data-ready="0">
 
 <a class="skip" href="#object">Skip to the object</a>
+
+<!-- The wait, designed. The line is the object's own channel at rest: it fills with the
+     emitter's colour as the bytes arrive and the programs are built, then sweeps once and
+     lifts. No spinner, and no invented percentage — the two numbers behind it are the
+     GLB's bytes and the shaders that have linked. -->
+<div class="boot" id="boot" role="status" aria-live="polite" aria-label="Loading Vesper 01">
+  <div class="boot__in">
+    <p class="boot__mark">Vesper</p>
+    <div class="boot__track" aria-hidden="true">
+      <i class="boot__fill" id="bootFill"></i>
+      <i class="boot__head" aria-hidden="true"></i>
+      <i class="boot__sweep" aria-hidden="true"></i>
+    </div>
+    <p class="boot__meta">
+      <span id="bootStage">Milling the channel</span>
+      <span class="boot__num"><span id="bootPct">00</span><span class="boot__pc">%</span></span>
+    </p>
+  </div>
+  <noscript><style>.boot{display:none}html{overflow:auto!important}</style></noscript>
+</div>
 
 <!-- one WebGL stage behind the whole page; the object is continuous, the camera is the operator -->
 <div class="stage" id="stage">
