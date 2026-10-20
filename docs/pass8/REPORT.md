@@ -65,21 +65,25 @@ own cut). No exposure, tone map or emissive value was touched.
 
 ## 4 · Acceptance, measured on the shipped frame
 
-`docs/pass8/shots/s3-hero.png`, cut square across the channel at its widest row
-(y\* = 425, ridge x = 1071, band 162.5° from +x):
+`docs/pass8/shots/live-hero-pass8.png` — shot from the live URL, not from the working
+tree — cut square across the channel at its widest row (y\* = 425, ridge x = 1071, band
+161.1° from +x):
 
 ```
-bands  metal 120.8 | throat 46.0 | core 137.0 | metal 122.1
-throat dip below the lower metal   74.7     (criterion ≥ 6)
+bands  metal 120.8 | throat 48.8 | core 137.0 | metal 122.0
+throat dip below the lower metal   72.1     (criterion ≥ 6)
 core above L 100                   9.0 px   (criterion ≥ 8)
 core offsets                       −5.0 .. +4.0 px
 ```
 
+The same cut on the local frame before deploying reads metal 120.8 / 122.1, throat 46.0,
+dip 74.7, core 137.0, 9.0 px — the two differ only by the dither's own ±1 level.
+
 | | pass 7 | pass 8 |
 |---|---|---|
 | metal L / R | 101.9 / 126.8 | 120.8 / 122.1 |
-| throat | 90.7 | 46.0 |
-| dip below lower metal | 11.2 | **74.7** |
+| throat | 90.7 | 48.8 |
+| dip below lower metal | 11.2 | **72.1** |
 | core peak | 131.5 | 137.0 |
 | core > L 100 | 34 px (halo merged into the flank) | **9.0 px** (the pipe itself) |
 
