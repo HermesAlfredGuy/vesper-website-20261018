@@ -20,3 +20,4 @@ tools/package-lock.json
 assets/asset/
 __pycache__/
 *.pyc
+docs/pass4/_seq/
