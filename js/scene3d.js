@@ -11,11 +11,68 @@
 
 import * as THREE from '../vendor/three.module.js';
 import { GLTFLoader } from '../vendor/GLTFLoader.js';
+import { MeshoptDecoder } from '../vendor/meshopt_decoder.module.js';
+import {
+  EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, SMAAEffect, SMAAImageLoader,
+  BlendFunction,
+} from '../vendor/postprocessing.module.js';
 import { FINISHES, ATMOSPHERES, REST } from './data.js';
 
 export { FINISHES, ATMOSPHERES };
 
 const TAU = Math.PI * 2;
+
+/* ---------- bringing the exported body back into metres ----------
+   assets/vesper-01.glb is meshopt-compressed, and gltf-transform's quantiser moves each
+   part's metre scale into its node transform: the POSITION accessor becomes normalised
+   int16 (-1..1) and the node carries the 0.098-0.142 scale. The stage builds its own
+   meshes and keeps only the geometry, so that transform has to be baked back in — and it
+   has to come back as float metres, not as the quantised attribute, because two things
+   here are written in object space: the brush is a function of position in millimetres
+   (see machinedSurface) and the channel probes measure radii in metres.
+   The parts have a uniform scale and no rotation, so normals survive unchanged; the
+   general branch is there so a future export cannot silently shade wrong. */
+function bakeGeometry(mesh) {
+  mesh.updateWorldMatrix(true, false);
+  const g = mesh.geometry;
+  const p = g.attributes.position;
+  const out = new THREE.BufferGeometry();
+  const arr = new Float32Array(p.count * 3);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+    arr[i * 3] = v.x; arr[i * 3 + 1] = v.y; arr[i * 3 + 2] = v.z;
+  }
+  out.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  for (const name of ['normal', 'uv', 'uv1', 'tangent']) {
+    const a = g.attributes[name];
+    if (!a) continue;
+    out.setAttribute(name, a);
+  }
+  if (g.index) out.setIndex(g.index);
+  /* uniform scale and no mirror -> normals are already right; otherwise transform them
+     into a fresh float attribute (never write floats into a normalised int8 array) */
+  const e = mesh.matrixWorld.elements;
+  const l0 = Math.hypot(e[0], e[1], e[2]);
+  const l1 = Math.hypot(e[4], e[5], e[6]);
+  const l2 = Math.hypot(e[8], e[9], e[10]);
+  const uniform = Math.abs(l0 - l1) < 1e-6 && Math.abs(l1 - l2) < 1e-6;
+  const mirrored = mesh.matrixWorld.determinant() < 0;
+  if (out.attributes.normal && (!uniform || mirrored)) {
+    const src = out.attributes.normal;
+    const nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+    const nArr = new Float32Array(src.count * 3);
+    const n = new THREE.Vector3();
+    for (let i = 0; i < src.count; i++) {
+      n.fromBufferAttribute(src, i).applyMatrix3(nm).normalize();
+      nArr[i * 3] = n.x; nArr[i * 3 + 1] = n.y; nArr[i * 3 + 2] = n.z;
+    }
+    out.setAttribute('normal', new THREE.BufferAttribute(nArr, 3));
+  }
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
 
 /* ---------- procedural textures ---------- */
 
@@ -471,15 +528,13 @@ export function createStage(canvasEl, opts = {}) {
   /* Tone mapping and the sRGB encode move to the output stage below (see POST): the
      scene renders into a half-float target, so shading is never quantised to 8 bits
      before the exposure curve has done its work. toneMappingExposure is still the one
-     exposure control — the composite reads it every frame. */
+     exposure control — the grade effect reads it every frame. */
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.toneMappingExposure = 1.0;
-  /* The canvas is sRGB, and the post pass below is the thing that writes sRGB into it.
-     Declaring LinearSRGB here (as pass 6 did, to stop materials encoding into the target)
-     told the compositor the drawing buffer was linear while it held sRGB, so the on-screen
-     compositing and any screenshot disagreed about the gamma by a factor of two. Materials
-     render into the RT, whose own colour space is NoColorSpace, so this setting no longer
-     affects them. */
+  /* Where the display encode happens is decided by the output stage, not here: the
+     composer's grade effect writes sRGB values and then declares the drawing buffer
+     linear (see POST), so that its own `colorspace_fragment` stays an identity. On the
+     no-float fallback the chain is direct and three encodes on the way to the canvas. */
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   // PCFSoftShadowMap was removed in r186: setting it silently falls back to PCF and
@@ -487,202 +542,177 @@ export function createStage(canvasEl, opts = {}) {
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   /* ---------- the output stage ----------
-     Pass 6 dithered two materials and the banding stayed, for a reason that is not a
-     tuning problem: an 8-bit framebuffer is the quantiser. ACES compresses the top two
-     stops into ~40 code values, so a shoulder or a floor falloff that is continuous in
-     linear light becomes 3-6 visible plateaus no matter what the shader does — a 1/255
-     dither in the material is added *before* the curve that creates the steps.
+     Pass 8 hand-rolled this chain: shade into an RGBA16F target, bright-pass, blur the
+     bloom twice at quarter resolution, then one composite that did exposure -> ACES ->
+     sRGB -> an ordered dither and wrote the canvas. It was right about most of it — the
+     half-float buffer is what keeps the curve off an 8-bit signal, and the dither is what
+     stops the floor falloff from stepping — and it was wrong about the one thing a person
+     sees first: anti-aliasing.
 
-     So the scene is shaded into an RGBA16F target (linear, no encode), and one full-screen
-     pass does exposure -> ACES -> sRGB -> an 8x8 ordered dither of +-0.5 LSB, then writes
-     the canvas once. The intermediate carries ~11 stops of headroom at the values this
-     scene uses, so the curve is evaluated per pixel on a continuous signal; the dither
-     turns the final 1-LSB staircase into a 64-level pattern, which is what a display
-     quantiser has always needed. No grain: the pattern is fixed in screen space, so it
-     cannot crawl when the camera moves.
-     At a device ratio >= 1.5 the target is left unmultisampled (the supersampling is the
-     antialiasing); at 1x it gets 4x MSAA, which is the diagonal edge of the slot. */
+     It had no MSAA (a multisampled target read after two target switches came back empty
+     on this driver) and faked it with a 1.5x supersample at device ratios below 1.5, read
+     back with a single bilinear tap. One bilinear tap is a *blur*, not a box filter: it
+     smears every silhouette across 1.5 device pixels, and at a ratio >= 1.5 there was no
+     AA at all. That is the softness — not occlusion, not the bloom — and no amount of
+     texture resolution fixes it.
+
+     So the chain is now pmndrs `postprocessing`: an EffectComposer with a multisampled
+     half-float buffer (4x MSAA, resolved by the composer on WebGL 2, which is where the
+     empty-resolve problem lived — it resolves the input buffer once, the way the spec
+     says, instead of relying on the renderer's unbind). The look is held exactly: the
+     same ACES fit, the same exposure control, the same 8x8 ordered dither, in one custom
+     effect, and a tight emitter bloom above 1.0 linear so the glow belongs to the pipe
+     (3.2 linear) and never to the studio (0.65).
+     If the device cannot multisample — or has no float render targets at all — the chain
+     falls back to SMAA on an 8-bit buffer, and then to direct rendering. */
   const POST = (() => {
-    const canFloat = !!(renderer.capabilities && renderer.capabilities.isWebGL2) &&
+    const isGL2 = !!(renderer.capabilities && renderer.capabilities.isWebGL2);
+    const canFloat = isGL2 &&
       (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
-    if (!canFloat) return { mode: 'direct', samples: 0, enabled: false };
-    const dpr = () => renderer.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(1, 1, {
-      type: THREE.HalfFloatType, format: THREE.RGBAFormat,
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-      depthBuffer: true, stencilBuffer: false,
-      samples: 0,
-      colorSpace: THREE.NoColorSpace,
+
+    if (!canFloat) {
+      /* no float targets: let three tone map on the way to the canvas. It is not the same
+         curve, but it is a correct image, which beats a linear one. */
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      return {
+        mode: 'direct (no float render targets)', enabled: false, samples: 0,
+        setSize() {}, render(scene, camera) { renderer.render(scene, camera); }, dispose() {},
+        setSampling() {}, adaptive() {},
+      };
+    }
+
+    const MAX_SAMPLES = 4;
+    const composer = new EffectComposer(renderer, {
+      frameBufferType: THREE.HalfFloatType,
+      multisampling: MAX_SAMPLES,
     });
-    rt.texture.generateMipmaps = false;
-    /* No MSAA on this target: a multisampled target sampled after two intermediate passes
-       came back empty (the resolve three performs on unbind does not survive the extra
-       target switches), which rendered the bloom over a black scene. Supersampling does
-       the same job without the resolve: at a device ratio below 1.5 the scene target is
-       1.5x the canvas and the final pass's linear fetch is the box filter. This is also
-       what takes the staircase off the slot's diagonal. */
-    const SS = 1.5;
+    /* The composer appends `colorspace_fragment` to every effect, and that chunk encodes
+       to the renderer's output colour space. This grade already writes display values
+       (sRGB + dither), so the renderer declares linear and the chunk is an identity. */
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
-    /* Two quarter-resolution targets carry the emitter's bloom. It is not decoration: a
-       3.2-linear source photographed through any lens bleeds into the pixels around it,
-       and without that bleed a bright band on a bright body reads as a painted stripe —
-       which is exactly the note a fresh pair of eyes gave pass 6. The threshold sits at
-       1.05 linear, above the brightest diffuse the body reaches (0.65) and below the
-       pipe (3.27), so the glow belongs to the source and not to the studio. */
-    const BL = 0.25;
-    const mkRT = () => {
-      const t = new THREE.WebGLRenderTarget(1, 1, {
-        type: THREE.HalfFloatType, format: THREE.RGBAFormat,
-        minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-        depthBuffer: false, stencilBuffer: false, colorSpace: THREE.NoColorSpace,
-      });
-      t.texture.generateMipmaps = false;
-      return t;
-    };
-    const rtB = mkRT(), rtC = mkRT();
-
-    const VS = /* glsl */`
-      varying vec2 vUv;
-      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    /* One effect, the same maths the composite pass had, so the frame the owner approved
+       is the frame that ships — only the sampling around it changed. Written in display
+       space on purpose: the dither has to be added to the code value the display gets,
+       which is why it cannot live in a separate pass after an automatic encode. */
+    const GRADE = /* glsl */`
+      uniform float uExposure;
+      vec3 rrtAndOdtFit(vec3 v) {
+        vec3 a = v * (v + 0.0245786) - 0.000090537;
+        vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+        return a / b;
+      }
+      vec3 aces(vec3 c) {
+        const mat3 IN = mat3(0.59719, 0.07600, 0.02840,
+                             0.35458, 0.90834, 0.13383,
+                             0.04823, 0.01566, 0.83777);
+        const mat3 OUT = mat3(1.60475, -0.10208, -0.00327,
+                             -0.53108, 1.10813, -0.07276,
+                             -0.07367, -0.00605, 1.07602);
+        c *= uExposure / 0.6;
+        c = IN * c;
+        c = rrtAndOdtFit(c);
+        c = OUT * c;
+        return clamp(c, 0.0, 1.0);
+      }
+      vec3 toSRGB(vec3 c) {
+        return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+      }
+      float bayer2(vec2 a) { a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
+      float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        vec3 c = toSRGB(aces(max(inputColor.rgb, 0.0)));
+        float d = bayer4(gl_FragCoord.xy * 0.5) * 0.25 + bayer2(gl_FragCoord.xy);
+        c += (d - 0.5) / 255.0;
+        outputColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      }
     `;
-    const bright = new THREE.ShaderMaterial({
-      uniforms: { uTex: { value: rt.texture }, uThresh: { value: 0.92 } },
-      depthTest: false, depthWrite: false, vertexShader: VS,
-      fragmentShader: /* glsl */`
-        precision highp float;
-        uniform sampler2D uTex; uniform float uThresh;
-        varying vec2 vUv;
-        void main() {
-          vec3 c = texture2D(uTex, vUv).rgb;
-          float l = max(max(c.r, c.g), c.b);
-          gl_FragColor = vec4(c * (max(l - uThresh, 0.0) / max(l, 1e-4)), 1.0);
-        }
-      `,
+    class GradeEffect extends Effect {
+      constructor() {
+        super('VesperGrade', GRADE, {
+          blendFunction: BlendFunction.SRC,
+          uniforms: new Map([['uExposure', new THREE.Uniform(1)]]),
+        });
+      }
+    }
+    const grade = new GradeEffect();
+
+    /* A light pipe's bleed, not a soft-focus filter: threshold above the brightest diffuse
+       the body reaches and below the pipe, radius small enough that the halo stays inside
+       the channel's own width. */
+    const bloom = new BloomEffect({
+      intensity: 1.3,
+      luminanceThreshold: 1.02,
+      luminanceSmoothing: 0.12,
+      mipmapBlur: true,
+      radius: 0.40,
     });
-    const blur = new THREE.ShaderMaterial({
-      uniforms: { uTex: { value: null }, uStep: { value: new THREE.Vector2() } },
-      depthTest: false, depthWrite: false, vertexShader: VS,
-      fragmentShader: /* glsl */`
-        precision highp float;
-        uniform sampler2D uTex; uniform vec2 uStep;
-        varying vec2 vUv;
-        void main() {
-          vec3 s = texture2D(uTex, vUv).rgb * 0.227027;
-          s += texture2D(uTex, vUv + uStep * 1.0).rgb * 0.1945946;
-          s += texture2D(uTex, vUv - uStep * 1.0).rgb * 0.1945946;
-          s += texture2D(uTex, vUv + uStep * 2.0).rgb * 0.1216216;
-          s += texture2D(uTex, vUv - uStep * 2.0).rgb * 0.1216216;
-          s += texture2D(uTex, vUv + uStep * 3.0).rgb * 0.054054;
-          s += texture2D(uTex, vUv - uStep * 3.0).rgb * 0.054054;
-          s += texture2D(uTex, vUv + uStep * 4.0).rgb * 0.016216;
-          s += texture2D(uTex, vUv - uStep * 4.0).rgb * 0.016216;
-          gl_FragColor = vec4(s, 1.0);
-        }
-      `,
-    });
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        uScene: { value: rt.texture }, uBloom: { value: rtB.texture },
-        uExposure: { value: 1 }, uBloomAmt: { value: 1.30 },
-      },
-      depthTest: false, depthWrite: false, vertexShader: VS,
-      fragmentShader: /* glsl */`
-        precision highp float;
-        uniform sampler2D uScene; uniform sampler2D uBloom;
-        uniform float uExposure; uniform float uBloomAmt;
-        varying vec2 vUv;
-        vec3 RRTAndODTFit(vec3 v) {
-          vec3 a = v * (v + 0.0245786) - 0.000090537;
-          vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-          return a / b;
-        }
-        vec3 aces(vec3 c) {
-          const mat3 IN = mat3(0.59719, 0.07600, 0.02840,
-                               0.35458, 0.90834, 0.13383,
-                               0.04823, 0.01566, 0.83777);
-          const mat3 OUT = mat3(1.60475, -0.10208, -0.00327,
-                                -0.53108, 1.10813, -0.07276,
-                                -0.07367, -0.00605, 1.07602);
-          c *= uExposure / 0.6;
-          c = IN * c;
-          c = RRTAndODTFit(c);
-          c = OUT * c;
-          return clamp(c, 0.0, 1.0);
-        }
-        vec3 toSRGB(vec3 c) {
-          return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-        }
-        float bayer2(vec2 a) { a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
-        float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
-        vec3 dither8(vec2 p) {
-          float d = bayer4(0.5 * p) * 0.25 + bayer2(p);
-          return vec3(d - 0.5) / 255.0;
-        }
-        void main() {
-          vec3 lin = max(texture2D(uScene, vUv).rgb, 0.0);
-          lin += uBloomAmt * texture2D(uBloom, vUv).rgb;
-          vec3 c = toSRGB(aces(lin));
-          c += dither8(gl_FragCoord.xy);
-          gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
-        }
-      `,
-    });
-    const geo = new THREE.PlaneGeometry(2, 2);
-    const quad = new THREE.Mesh(geo, mat);
-    quad.frustumCulled = false;
-    const scene2 = new THREE.Scene();
-    scene2.add(quad);
-    const quadB = new THREE.Mesh(geo, bright); quadB.frustumCulled = false;
-    const quadBlur = new THREE.Mesh(geo, blur); quadBlur.frustumCulled = false;
-    const sceneB = new THREE.Scene(); sceneB.add(quadB);
-    const sceneBlur = new THREE.Scene(); sceneBlur.add(quadBlur);
-    const cam2 = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    /* The halo used to reach ~24 px from the core, which is wider than the channel is:
-       it lifted the throat bands on both sides and erased the second dip. A light pipe's
-       bleed belongs to the source; 0.34 of the old radius keeps the bleed and gives the
-       milled rebate its own shadow back. */
-    const BR_RADIUS = 0.34;
-    let bw = 1, bh = 1;
+
+    let built = false;
+    let smaaPending = false;
+    function build(scene, camera) {
+      if (built) return;
+      built = true;
+      composer.addPass(new RenderPass(scene, camera));
+      composer.addPass(new EffectPass(camera, bloom, grade));
+      /* MSAA resolves coverage on every edge the geometry has. SMAA is the fallback for a
+         device that cannot give us a multisampled buffer at all — measured on this scene,
+         stacking it on top of 4x MSAA moved the slot edge's row-to-row wander from 0.70
+         to 0.72 CSS px, i.e. nothing, and it softens edge pixels that MSAA had already
+         resolved correctly. So: one antialiasing method at a time. */
+      if (composer.multisampling < 2) {
+      smaaPending = true;
+      try {
+        /* this build's loader dereferences its default callback when called with no
+           arguments — pass one so the constructor path is not taken */
+        new SMAAImageLoader().load(() => {}).then(([search, area]) => {
+          composer.addPass(new EffectPass(camera, new SMAAEffect(search, area, SMAAPreset.HIGH)));
+          smaaPending = false;
+        }).catch(() => { smaaPending = false; });
+      } catch (e) { smaaPending = false; }
+      }
+    }
+
+    /* Adaptive sampling: peak quality by default, one step down only if this machine
+       cannot hold a frame. Pinned by the capture tools, which need a known setting. */
+    let pinned = false;
+    let cost = 0;
+    let n = 0;
+    function setSampling(samples, pin = true) {
+      if (pin) pinned = true;
+      composer.multisampling = Math.min(MAX_SAMPLES, Math.max(0, samples));
+    }
+    function adaptive(ms) {
+      if (pinned) return;
+      cost += ms; n++;
+      if (n < 45) return;
+      const avg = cost / n; cost = 0; n = 0;
+      if (avg > 26 && composer.multisampling > 2) composer.multisampling = 2;
+    }
+
     return {
-      mode: 'half-float ' + SS + 'x supersample + emitter bloom + 8x8 ordered dither',
-      enabled: true, samples: rt.samples,
-      rt, mat, scene2, cam2,
-      setSize(w, h, ratio) {
-        const pw = Math.max(1, Math.round(w * ratio)), ph = Math.max(1, Math.round(h * ratio));
-        const ss = ratio >= 1.5 ? 1 : SS;
-        rt.setSize(Math.round(pw * ss), Math.round(ph * ss));
-        bw = Math.max(2, Math.round(pw * ss * BL));
-        bh = Math.max(2, Math.round(ph * ss * BL));
-        rtB.setSize(bw, bh);
-        rtC.setSize(bw, bh);
+      enabled: true,
+      get samples() { return composer.multisampling; },
+      get mode() {
+        return `half-float ${composer.multisampling}x MSAA EffectComposer + bloom(1.02) + ACES + ${composer.multisampling < 2 ? 'SMAA + ' : ''}8x8 dither`;
       },
-      render(scene, camera) {
-        mat.uniforms.uExposure.value = renderer.toneMappingExposure;
-        renderer.setRenderTarget(rt);
-        renderer.clear();
-        renderer.render(scene, camera);
-
-        bright.uniforms.uTex.value = rt.texture;
-        renderer.setRenderTarget(rtB);
-        renderer.render(sceneB, cam2);
-
-        blur.uniforms.uTex.value = rtB.texture;
-        blur.uniforms.uStep.value.set(BR_RADIUS / bw, 0);
-        renderer.setRenderTarget(rtC);
-        renderer.render(sceneBlur, cam2);
-
-        blur.uniforms.uTex.value = rtC.texture;
-        blur.uniforms.uStep.value.set(0, BR_RADIUS / bh);
-        renderer.setRenderTarget(rtB);
-        renderer.render(sceneBlur, cam2);
-
-        mat.uniforms.uBloom.value = rtB.texture;
-        renderer.setRenderTarget(null);
-        renderer.render(scene2, cam2);
+      /* the boot panel holds until the last edge pass is in place, so the first frame the
+         visitor sees is already the finished one */
+      get edgeReady() { return !smaaPending; },
+      setSize(w, h) { composer.setSize(w, h, false); },
+      setSampling,
+      render(scene, camera, dt) {
+        if (!built) build(scene, camera);
+        grade.uniforms.get('uExposure').value = renderer.toneMappingExposure;
+        const t0 = performance.now();
+        composer.render(dt || 0.016);
+        adaptive(performance.now() - t0);
       },
       dispose() {
-        rt.dispose(); rtB.dispose(); rtC.dispose();
-        mat.dispose(); bright.dispose(); blur.dispose(); geo.dispose();
+        composer.dispose();
+        bloom.dispose();
+        grade.dispose();
       },
     };
   })();
@@ -696,6 +726,10 @@ export function createStage(canvasEl, opts = {}) {
      load" — the still is painted, but the thread is inside the compiler and the page
      answers nothing. There is no frame loop running yet at this point, so hiding all
      but one mesh compiles that mesh's programs alone and cannot flash. */
+  /* Progress for the loading screen: bytes, then programs. Declared here because the
+     compile pass below reports into it and both are read from outside. */
+  const loadState = { assets: 0, compile: 0 };
+
   let compiled = false;
   const list0 = [];       // every mesh the scene started with, for the bail-out below
 
@@ -721,6 +755,7 @@ export function createStage(canvasEl, opts = {}) {
       for (let i = 0; i < list.length; i++) {
         list.forEach((o, n) => { o.visible = n === i; });
         try { renderer.compile(scene, camera); } catch (e) { /* first update() finishes it */ }
+        loadState.compile = (i + 1) / list.length;
         // restore before yielding. main.js races this against an 8 s timeout and then
         // calls live() whether or not we are done: leaving the scene half-hidden meant
         // every frame after that timeout drew a body with no emitter in it — which is
@@ -918,7 +953,7 @@ export function createStage(canvasEl, opts = {}) {
   /* A build tag, not decoration: the exported GLB is cached by path, and a returning
      visitor would otherwise keep the previous body for as long as the header allows.
      Bump it whenever the .glb changes. */
-  const ASSET_URL = new URL('../assets/vesper-01.glb?v=9', import.meta.url).href;
+  const ASSET_URL = new URL('../assets/vesper-01.glb?v=11', import.meta.url).href;
   const placeholder = () => new THREE.BoxGeometry(1e-4, 1e-4, 1e-4);
 
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -1068,7 +1103,19 @@ export function createStage(canvasEl, opts = {}) {
   if (typeof performance !== 'undefined' && performance.mark) performance.mark('vesper:t-shell');
 
   let assetReady = false;
-  const assetLoaded = new GLTFLoader().loadAsync(ASSET_URL).then((gltf) => {
+  const assetLoaded = new Promise((resolve, reject) => {
+    const loader = new GLTFLoader();
+    /* The shipped GLB is meshopt-compressed (6.34 MB -> 0.9 MB). EXT_meshopt_compression
+       is only accepted once a decoder is attached. */
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.load(
+      ASSET_URL,
+      resolve,
+      (e) => { if (e && e.lengthComputable && e.total) loadState.assets = Math.min(1, e.loaded / e.total); },
+      reject,
+    );
+  }).then((gltf) => {
+    loadState.assets = 1;
     const src = gltf.scene;
     const take = (name) => src.getObjectByName(name);
     const shell = take('Shell');
@@ -1081,6 +1128,14 @@ export function createStage(canvasEl, opts = {}) {
        number; roughnessMap.g is 0.56-1.00 and only ever pulls roughness down where the
        bake found a burnished edge. */
     const sm = shell.material;
+    /* Anisotropic filtering on the whole atlas. The column is a cylinder seen at grazing
+       angles down its whole height, and with the default 1x the mip chain smears the
+       brushed detail along the silhouette exactly where the eye is looking. This is a
+       sampling setting, not a sharpening: it costs nothing on any GPU that offers it. */
+    const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    for (const t of [sm.map, sm.normalMap, sm.aoMap, sm.roughnessMap, sm.metalnessMap]) {
+      if (t) { t.anisotropy = aniso; t.needsUpdate = true; }
+    }
     for (const [m, mats] of [[bodyMat, sm], [plinthMat, sm], [dialMat, sm]]) {
       m.map = sm.map;
       m.normalMap = sm.normalMap;
@@ -1092,10 +1147,10 @@ export function createStage(canvasEl, opts = {}) {
     }
     dialMat.roughness = 0.38;
     dialMat.color.set(0xa4a9ae);
-    body.geometry = shell.geometry;
-    plinth.geometry = base ? base.geometry : placeholder();
-    dial.geometry = ring ? ring.geometry : placeholder();
-    opal.geometry = pipe.geometry;
+    body.geometry = bakeGeometry(shell);
+    plinth.geometry = base ? bakeGeometry(base) : placeholder();
+    dial.geometry = ring ? bakeGeometry(ring) : placeholder();
+    opal.geometry = bakeGeometry(pipe);
     for (const o of [body, plinth, dial, opal]) o.visible = true;
     assetReady = true;
     return gltf;
@@ -1370,7 +1425,11 @@ export function createStage(canvasEl, opts = {}) {
     // 3.2 at the shipped intensity: enough that the gradient's centre clips to a hot line
     // while its shoulders stay amber, which is how a bright emitter photographs. The whole
     // face stays the brightest plane in the frame by ~90 code values.
-    coreMat.emissiveIntensity = 3.10 + i * 0.60;
+    /* Under reduced motion the object does not travel and does not bob — but it is not
+       frozen either: a slow ±3.5 % change in the emitter's output over about twenty
+       seconds is light, not movement, and a completely still renderer reads as a broken
+       page rather than a calm one. The bob above is the only thing that stops. */
+    coreMat.emissiveIntensity = (3.10 + i * 0.60) * (reduced ? 1 + 0.035 * Math.sin(t * 0.31) : 1);
     // The slot's own bounce stays tiny. These lights sit ~5 mm from the metal, where three's
     // 1/r² multiplies the intensity by 4*10^4: pass 2's "0.34" was a floodlight painting the
     // body amber, which is how a white studio produced a bronze macro. The light the seam
@@ -1441,7 +1500,7 @@ export function createStage(canvasEl, opts = {}) {
 
     if (!reduced) group.position.y = Math.sin(t * 0.5) * 0.0009;
 
-    if (POST.enabled) POST.render(scene, camera);
+    if (POST.enabled) POST.render(scene, camera, dt);
     else renderer.render(scene, camera);
     hasRendered = true;
     instant = false;
@@ -1453,7 +1512,18 @@ export function createStage(canvasEl, opts = {}) {
        display is 5.2 M pixels before the 4× multisample buffer: that is where the
        steady-state cost goes on a laptop GPU that is otherwise idle. Cap the drawing
        buffer at ~2.4 M pixels and keep the CSS size; above that the extra pixels buy
-       nothing at normal viewing distance. */
+       nothing at normal viewing distance. Unlike pass 8 this is now actually applied —
+       the MSAA buffer is 4 samples of the drawing buffer, so the cap is what keeps a
+       retina laptop at 60 fps. */
+    /* The cap sits at one 2880x1800 retina viewport (5.2 Mpx), so a 1440x900 laptop at
+       DPR 2 is rendered natively — the AA evidence is taken at that pair — and only
+       larger surfaces are resampled. Devices that cannot hold the frame drop MSAA first
+       (see POST.adaptive), which costs a little edge quality; dropping the drawing
+       buffer instead would cost the whole image. */
+    const BUDGET = 5.2e6;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const budgetRatio = Math.sqrt(BUDGET / (w * h));
+    renderer.setPixelRatio(Math.max(0.75, Math.min(dpr, budgetRatio)));
     renderer.setSize(w, h, false);
     if (POST.enabled) POST.setSize(w, h, renderer.getPixelRatio());
     camera.aspect = w / h;
@@ -1621,6 +1691,12 @@ export function createStage(canvasEl, opts = {}) {
     objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => (body.geometry && body.geometry.getAttribute('position') ? body.geometry.getAttribute('position').count : 0),
     wallSpill, floorPool, wallSpillMat, floorPoolMat,
     output: () => ({ mode: POST.mode, enabled: !!POST.enabled, samples: POST.samples }),
+    /* loading-screen inputs: 0..1 bytes off the wire, 0..1 programs built */
+    edgeReady: () => (POST.edgeReady === undefined ? true : POST.edgeReady),
+    loadProgress: () => ({ assets: loadState.assets, compile: loadState.compile, ready: assetReady }),
+    /* capture tools pin the sampling so evidence is taken at a known setting; the page
+       itself leaves it adaptive */
+    setSampling: (n) => POST.setSampling(n),
     CHANNEL, outerRadius,
   };
 }
