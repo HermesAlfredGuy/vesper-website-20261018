@@ -1,0 +1,36 @@
+{
+  "kind": "web",
+  "url": "http://127.0.0.1:9311/index.html",
+  "when": "2026-10-20T16:22:24.754Z",
+  "errors": [],
+  "failedRequests": [],
+  "notes": [],
+  "desktop": {
+    "loadMs": 166,
+    "pageHeight": 6348,
+    "fps": 1,
+    "worstFrameMs": 2161,
+    "longTasks": 6,
+    "longTaskMs": 32883,
+    "overflowX": false
+  },
+  "a11y": [],
+  "textLeaks": [],
+  "lineClash": [],
+  "mobile": {
+    "loadMs": 113,
+    "scrollWidth": 390,
+    "width": 390,
+    "offenders": [],
+    "overflowX": false,
+    "smallTapTargets": 3
+  },
+  "motionUnderReduce": {
+    "movesNormal": true,
+    "movesReduced": false,
+    "verdict": "FROZEN"
+  },
+  "reducedMotion": {
+    "invisibleHeadingsInView": 1
+  }
+}

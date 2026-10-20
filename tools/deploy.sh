@@ -68,7 +68,8 @@ curl -sS -o /dev/null -w "index.html -> %{http_code}\n" "$URL"
 # the gates, so compare them instead of trusting the build status
 echo "— live bytes vs working tree —"
 BAD=0
-for f in index.html css/site.css js/main.js js/scene3d.js js/data.js assets/vesper-drawing.svg; do
+for f in index.html css/site.css js/main.js js/scene3d.js js/data.js assets/vesper-drawing.svg \
+         vendor/postprocessing.module.js vendor/lenis.mjs vendor/meshopt_decoder.module.js assets/vesper-01.glb; do
   L=$(sha256sum "$f" | cut -d' ' -f1)
   R=$(curl -sS "$URL$f?cb=$(date +%s)" | sha256sum | cut -d' ' -f1)
   if [ "$L" = "$R" ]; then echo "  ok        $f  ${L:0:12}"; else echo "  MISMATCH  $f  local ${L:0:12} live ${R:0:12}"; BAD=1; fi

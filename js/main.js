@@ -533,16 +533,33 @@ function paintBoot(v, copy) {
   }
 }
 
-function bootFrame() {
+/* The watchdog is a net for a hung request, not a schedule: every time the work actually
+   advances it is re-armed. A fixed 15 s deadline opened the page in the middle of a
+   software renderer's linking pass — the exact "timer pretending to be a percentage" this
+   panel exists to avoid. */
+function armWatchdog() {
+  clearTimeout(bootTimeout);
+  bootTimeout = setTimeout(() => revealBoot('timeout'), 15000);
+}
+
+let bootLast = performance.now();
+function bootFrame(now) {
   if (bootDone) return;
   const s = stage && stage.loadProgress ? stage.loadProgress() : null;
   if (s) {
     /* 0-62 % the bytes, 62-96 % the programs; the rest is the first frames */
-    bootTarget = Math.max(bootTarget, Math.min(0.96, s.assets * 0.62 + s.compile * 0.34));
+    const next = Math.max(bootTarget, Math.min(0.96, s.assets * 0.62 + s.compile * 0.34));
+    if (next > bootTarget + 0.005) armWatchdog();
+    bootTarget = next;
     paintBoot(bootShown, s.assets < 1 ? BOOT_COPY.assets : s.compile < 1 ? BOOT_COPY.compile : BOOT_COPY.frames);
   }
-  /* ease, so a chunk that arrives all at once still reads as travel rather than a jump */
-  bootShown += (bootTarget - bootShown) * 0.16;
+  /* ease, so a chunk that arrives all at once still reads as travel rather than a jump.
+     Time-based, not per-frame: at 0.16 per frame a machine drawing one frame a second
+     crawls the line and then snaps it to 100 at the reveal, which is the one thing this
+     panel must not look like. */
+  const dts = Math.min(0.10, Math.max(0.001, (now - bootLast) / 1000));
+  bootLast = now;
+  bootShown += (bootTarget - bootShown) * (1 - Math.exp(-dts * 9));
   paintBoot(bootShown);
   requestAnimationFrame(bootFrame);
 }
@@ -575,7 +592,7 @@ function revealBoot(reason) {
   }, sweep);
   if (reason !== 'timeout') clearTimeout(bootTimeout);
 }
-bootTimeout = setTimeout(() => revealBoot('timeout'), 15000);
+armWatchdog();
 
 /* ---------- the loop: one owner, throttled, and never in front of page load ---------- */
 const progressBar = $('#progressBar');
@@ -644,15 +661,20 @@ function frame(now) {
     prev.int = targetInt; prev.orbit = state.orbit;
 
     /* The reveal waits for the object, not for a promise: two frames on the canvas after
-       the stage reports the GLB applied and its programs linked. Counting frames from the
+       the GLB is applied — the rest links as it comes into view. Counting frames from the
        moment the loop starts would reveal placeholder boxes — pass 8's capture tools made
-       exactly that mistake with the poster, and the panel makes it much easier to hide. */
+       exactly that mistake with the poster, and the panel makes it much easier to hide.
+
+       A program that has not linked cannot draw, so two frames carrying the loaded geometry
+       are proof that the object is on screen. Waiting for *every* program (the old gate) put
+       the panel behind a software renderer's linking time — 20 s here — and the watchdog then
+       opened the page before the work finished, which is the one thing the panel must not do.
+       The watchdog is now only a net for a hung request. */
     if (!bootDone && stageLive) {
       liveFrames++;
       const lp = stage.loadProgress ? stage.loadProgress() : { ready: true };
-      const compiled = !stage.isCompiled || stage.isCompiled();
       const edgesReady = !stage.edgeReady || stage.edgeReady();
-      if (liveFrames >= 2 && lp.ready && compiled && edgesReady) revealBoot('frames');
+      if (liveFrames >= 2 && lp.ready && edgesReady) revealBoot('frames');
     }
 
     /* measure what the frame actually cost, not the gap between frames: the gap

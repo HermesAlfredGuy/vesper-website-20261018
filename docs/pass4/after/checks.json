@@ -1,0 +1,117 @@
+{
+ "reduced": {},
+ "mobile": {
+  "overflow": {
+   "docWidth": 390,
+   "innerWidth": 390,
+   "boot": {
+    "w": 390,
+    "h": 844,
+    "left": 0
+   },
+   "dock": {
+    "left": 18,
+    "right": 372,
+    "width": 354
+   }
+  },
+  "errors": [],
+  "shots": [
+   "docs/pass4/after/mobile-boot.png"
+  ],
+  "touchTurn": {
+   "orbitBefore": -0.35,
+   "orbitAfter": -0.466,
+   "turned": true,
+   "scrollDuringDrag": 0
+  },
+  "touchScroll": {
+   "scrollAfter": 245,
+   "scrolled": true,
+   "orbitChanged": false
+  },
+  "nativeScroll": {
+   "before": 245,
+   "after": 900,
+   "moved": true
+  }
+ },
+ "motion": {
+  "osReduce": {
+   "classOnHtml": false,
+   "lenisPresent": false
+  },
+  "glide": {
+   "from": 0,
+   "mid": 0,
+   "end": 900,
+   "midBeforeEnd": true
+  },
+  "afterToggle": {
+   "htmlClass": true,
+   "stored": "reduced",
+   "lenis": false,
+   "pressed": "true",
+   "footText": "Motion reduced"
+  },
+  "calm": {
+   "scrolled": {
+    "from": 0,
+    "to": 0,
+    "moved": 0,
+    "deadStop": true,
+    "settleProbe": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "ticks": [
+    900,
+    1200,
+    1500,
+    1800
+   ],
+   "instantPerTick": [
+    300,
+    300,
+    300
+   ],
+   "css": {
+    "revealTransform": "none",
+    "revealTransition": "opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
+    "rvTransform": null,
+    "sweepAnim": "none",
+    "scrollBehaviour": "auto"
+   }
+  },
+  "liveness": {
+   "changed": false
+  },
+  "persisted": {
+   "htmlClass": true,
+   "stored": "reduced"
+  },
+  "errors": []
+ },
+ "desktop": {
+  "drag": {
+   "before": -0.262,
+   "after": -1.409,
+   "turned": true
+  },
+  "keyboard": {
+   "before": {
+    "orbit": -1.4088920240055387,
+    "value": "-50"
+   },
+   "after": {
+    "orbit": -1.4088920240055387,
+    "value": "-49"
+   },
+   "moved": true
+  },
+  "errors": []
+ }
+}

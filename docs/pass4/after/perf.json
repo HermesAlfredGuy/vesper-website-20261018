@@ -1,0 +1,56 @@
+{
+  "fcp": 1532,
+  "marks": {
+    "vesper:boot": 543,
+    "vesper:imported": 1957,
+    "vesper:env-start": 2032,
+    "vesper:env-end": 3233,
+    "vesper:t-plaster": 3867,
+    "vesper:t-shell": 3875,
+    "vesper:stage": 3889,
+    "vesper:revealed": 15091,
+    "vesper:unlocked": 15532,
+    "vesper:smooth": 15535,
+    "vesper:compiled": 15684,
+    "vesper:live": 21456
+  },
+  "stageLiveAt": 21475,
+  "longTaskCount": 4,
+  "longestTaskMs": 12242,
+  "longestTaskStart": 1946,
+  "longTaskTotalMs": 19349,
+  "totalBlockingMs": 19149,
+  "longTasks": "543+1258 1946+12242 14397+77 15684+5772",
+  "transferKB": 4391,
+  "heaviest": [
+    {
+      "n": "three.module.js",
+      "kb": 648,
+      "ms": 49
+    },
+    {
+      "n": "ibm-plex-mono-400.woff2",
+      "kb": 15,
+      "ms": 43
+    },
+    {
+      "n": "instrument-serif-italic.woff2",
+      "kb": 22,
+      "ms": 39
+    },
+    {
+      "n": "postprocessing.module.js",
+      "kb": 166,
+      "ms": 35
+    },
+    {
+      "n": "GLTFLoader.js",
+      "kb": 115,
+      "ms": 34
+    }
+  ],
+  "jsHeapMB": 14,
+  "responseEnd": 8,
+  "stageLive": true,
+  "pageErrors": []
+}

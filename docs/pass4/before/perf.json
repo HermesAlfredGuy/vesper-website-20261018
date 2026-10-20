@@ -1,0 +1,53 @@
+{
+  "fcp": 1904,
+  "marks": {
+    "vesper:boot": 475,
+    "vesper:imported": 2137,
+    "vesper:env-start": 2283,
+    "vesper:env-end": 3669,
+    "vesper:t-plaster": 4445,
+    "vesper:t-shell": 4450,
+    "vesper:stage": 4458,
+    "vesper:compiled": 18704,
+    "vesper:live": 25328
+  },
+  "stageLiveAt": 25341,
+  "longTaskCount": 5,
+  "longestTaskMs": 12235,
+  "longestTaskStart": 2114,
+  "longTaskTotalMs": 20517,
+  "totalBlockingMs": 20267,
+  "longTasks": "475+1534 2114+12235 17236+50 17416+74 18704+6624",
+  "transferKB": 8708,
+  "heaviest": [
+    {
+      "n": "vesper-01.glb?v=9",
+      "kb": 6192,
+      "ms": 12744
+    },
+    {
+      "n": "ibm-plex-mono-400.woff2",
+      "kb": 15,
+      "ms": 27
+    },
+    {
+      "n": "instrument-serif-400.woff2",
+      "kb": 21,
+      "ms": 25
+    },
+    {
+      "n": "instrument-sans-400.woff2",
+      "kb": 30,
+      "ms": 24
+    },
+    {
+      "n": "poster.webp",
+      "kb": 50,
+      "ms": 24
+    }
+  ],
+  "jsHeapMB": 20,
+  "responseEnd": 14,
+  "stageLive": true,
+  "pageErrors": []
+}

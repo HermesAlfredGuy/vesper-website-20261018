@@ -1,0 +1,96 @@
+{
+  "full": {
+    "kind": "full",
+    "htmlClass": "lenis",
+    "hasLenis": true,
+    "frames": 9,
+    "avgFrameMs": 283,
+    "distinctPositions": 6,
+    "first": [
+      0,
+      0,
+      351,
+      406,
+      417,
+      419,
+      420,
+      420
+    ],
+    "animatedVsTarget": [
+      "0/0",
+      "0/0",
+      "351/420",
+      "406/420",
+      "417/420",
+      "419/420",
+      "420/420",
+      "420/420",
+      "420/420"
+    ],
+    "finalY": 420,
+    "settled": true,
+    "errors": []
+  },
+  "os": {
+    "kind": "os",
+    "htmlClass": "lenis",
+    "hasLenis": true,
+    "frames": 9,
+    "avgFrameMs": 294,
+    "distinctPositions": 3,
+    "first": [
+      0,
+      0,
+      0,
+      363,
+      420,
+      420,
+      420,
+      420
+    ],
+    "animatedVsTarget": [
+      "0/0",
+      "0/0",
+      "0/0",
+      "363/420",
+      "420/420",
+      "420/420",
+      "420/420",
+      "420/420",
+      "420/420"
+    ],
+    "finalY": 420,
+    "settled": true,
+    "errors": []
+  },
+  "toggle": {
+    "kind": "toggle",
+    "htmlClass": "reduced",
+    "hasLenis": false,
+    "frames": 10,
+    "avgFrameMs": 268,
+    "distinctPositions": 2,
+    "first": [
+      0,
+      0,
+      0,
+      420,
+      420,
+      420,
+      420,
+      420
+    ],
+    "animatedVsTarget": [],
+    "finalY": 420,
+    "settled": true,
+    "errors": []
+  },
+  "verdict": {
+    "fullEased": true,
+    "fullUsesLenis": true,
+    "osReducedIsStillFull": true,
+    "toggleDropsLenis": true,
+    "toggleJumps": true,
+    "noErrors": true
+  }
+}
