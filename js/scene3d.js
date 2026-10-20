@@ -327,21 +327,33 @@ export function outerRadius(y) {
 
 export const CHANNEL = {
   /* The asset's slot, in metres — read off tools/asset/build_vesper.py, not chosen here.
-     Pass 6 stopped shading a groove. The recess is a machined helical slot cut into the
-     shell mesh: 14 mm across the untouched surface, a 6.5 mm floor, a 45 deg lip chamfer
-     and a 0.45 mm lip land, with a 5 deg draft throat wall between them. aperture and
-     depth are the geometry's own numbers, and verify.mjs measures them back off the
-     loaded vertex buffer — a shader cannot report them. */
-  phase: -1.15,       // where the single start sits at half height in the front view
-  turns: 1.16,
+     Pass 7 widened the cut and turned it to the lens. The recess is a machined helical
+     slot: 24 mm across the untouched surface, a 2.0 mm 45 deg outer bevel, a 0.56 mm lip
+     land, an 8 deg draft throat and a 7.4 mm floor, with a separate 13.2 mm light pipe
+     whose crown stops 1.25 mm under the lip plane. aperture and depth are the geometry's
+     own numbers, and verify.mjs measures them back off the loaded vertex buffer — a
+     shader cannot report them.
+
+     phase is where the single start sits at half height. -2.6226 rad puts that section at
+     58.5 deg, which is 10 deg inside the hero camera's own azimuth (68.5 deg): the
+     aperture is seen at 0.98 of its width instead of 0.58, and the helix still carries
+     away above and below it, so it reads as a channel and not a painted band. */
+  /* The mesh's helix, stated positively: the exporter turns Blender's Z-up into Y-up with
+     (x, y, z) -> (x, z, -y), so both the start and the direction arrive negated. Pass 6
+     carried phase -1.15 / turns +1.16 against a mesh built the same way, which put this
+     model's emitters 180 deg from the metal they were supposed to belong to — the spill was
+     drawn on the far side of the body from the slot, and no amount of tuning could make the
+     patch look like it came out of the opening. */
+  phase: 4.6650,     // azimuth at half height: 58.5 deg, i.e. the hero camera's less 10
+  turns: -1.16,      // the helix climbs the other way in the page's frame
   yMin: 0.038,
   yMax: 0.286,
-  aperture: 0.0140,   // 14 mm across the opening: 15.0 px at the shipped hero framing
-  depth: 0.0065,      // 6.5 mm to the floor
-  lipBreak: 0.00585,  // half-aperture where the 45 deg chamfer meets the throat wall
-  floorHalf: 0.00430, // half-aperture of the flat floor
-  pipeHalf: 0.00270,  // light-pipe half width (5.4 mm strip)
-  pipeCrown: 0.00395, // crown of the pipe below the untouched surface
+  aperture: 0.0240,   // 24 mm across the opening: 60 px at the shipped hero framing
+  depth: 0.00740,     // 7.4 mm to the floor
+  lipBreak: 0.00986,  // half-aperture where the 45 deg bevel meets the lip land
+  floorHalf: 0.00815, // half-aperture of the flat floor
+  pipeHalf: 0.00660,  // light-pipe half width (13.2 mm strip)
+  pipeCrown: 0.00125, // crown of the pipe below the untouched surface
 };
 
 /** How far along the helix a height sits: 0 at the slot's bottom, 1 at its top. */
@@ -392,7 +404,6 @@ uniform float uCut2;           // squared radius past which nothing can be lit
 uniform sampler2D uGrain;
 varying vec3 vWorld;
 
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
 void main() {
   // the light is local: everything past the cut is exact, and free
@@ -441,7 +452,8 @@ void main() {
   // into a plate, which is how a shaped spill becomes a "generic amber pool"; 0.45 keeps
   // the falloff a gradient the eye can read as an edge.
   col = col / (1.0 + 0.32 * col);
-  col += (hash(gl_FragCoord.xy) - 0.5) * (1.5 / 255.0);   // no banding in the falloff
+  /* no per-pixel noise here: the falloff leaves this shader in linear float and is
+     quantised once, at the frame's output stage, against an 8x8 ordered dither. */
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }
 `;
@@ -456,12 +468,219 @@ export function createStage(canvasEl, opts = {}) {
     powerPreference: 'high-performance',
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  /* Tone mapping and the sRGB encode move to the output stage below (see POST): the
+     scene renders into a half-float target, so shading is never quantised to 8 bits
+     before the exposure curve has done its work. toneMappingExposure is still the one
+     exposure control — the composite reads it every frame. */
+  renderer.toneMapping = THREE.NoToneMapping;
   renderer.toneMappingExposure = 1.0;
+  /* The canvas is sRGB, and the post pass below is the thing that writes sRGB into it.
+     Declaring LinearSRGB here (as pass 6 did, to stop materials encoding into the target)
+     told the compositor the drawing buffer was linear while it held sRGB, so the on-screen
+     compositing and any screenshot disagreed about the gamma by a factor of two. Materials
+     render into the RT, whose own colour space is NoColorSpace, so this setting no longer
+     affects them. */
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   // PCFSoftShadowMap was removed in r186: setting it silently falls back to PCF and
   // logs a warning. Ask for PCF and buy the softness back with resolution instead.
   renderer.shadowMap.type = THREE.PCFShadowMap;
+
+  /* ---------- the output stage ----------
+     Pass 6 dithered two materials and the banding stayed, for a reason that is not a
+     tuning problem: an 8-bit framebuffer is the quantiser. ACES compresses the top two
+     stops into ~40 code values, so a shoulder or a floor falloff that is continuous in
+     linear light becomes 3-6 visible plateaus no matter what the shader does — a 1/255
+     dither in the material is added *before* the curve that creates the steps.
+
+     So the scene is shaded into an RGBA16F target (linear, no encode), and one full-screen
+     pass does exposure -> ACES -> sRGB -> an 8x8 ordered dither of +-0.5 LSB, then writes
+     the canvas once. The intermediate carries ~11 stops of headroom at the values this
+     scene uses, so the curve is evaluated per pixel on a continuous signal; the dither
+     turns the final 1-LSB staircase into a 64-level pattern, which is what a display
+     quantiser has always needed. No grain: the pattern is fixed in screen space, so it
+     cannot crawl when the camera moves.
+     At a device ratio >= 1.5 the target is left unmultisampled (the supersampling is the
+     antialiasing); at 1x it gets 4x MSAA, which is the diagonal edge of the slot. */
+  const POST = (() => {
+    const canFloat = !!(renderer.capabilities && renderer.capabilities.isWebGL2) &&
+      (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
+    if (!canFloat) return { mode: 'direct', samples: 0, enabled: false };
+    const dpr = () => renderer.getPixelRatio();
+    const rt = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      depthBuffer: true, stencilBuffer: false,
+      samples: 0,
+      colorSpace: THREE.NoColorSpace,
+    });
+    rt.texture.generateMipmaps = false;
+    /* No MSAA on this target: a multisampled target sampled after two intermediate passes
+       came back empty (the resolve three performs on unbind does not survive the extra
+       target switches), which rendered the bloom over a black scene. Supersampling does
+       the same job without the resolve: at a device ratio below 1.5 the scene target is
+       1.5x the canvas and the final pass's linear fetch is the box filter. This is also
+       what takes the staircase off the slot's diagonal. */
+    const SS = 1.5;
+
+    /* Two quarter-resolution targets carry the emitter's bloom. It is not decoration: a
+       3.2-linear source photographed through any lens bleeds into the pixels around it,
+       and without that bleed a bright band on a bright body reads as a painted stripe —
+       which is exactly the note a fresh pair of eyes gave pass 6. The threshold sits at
+       1.05 linear, above the brightest diffuse the body reaches (0.65) and below the
+       pipe (3.27), so the glow belongs to the source and not to the studio. */
+    const BL = 0.25;
+    const mkRT = () => {
+      const t = new THREE.WebGLRenderTarget(1, 1, {
+        type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+        minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+        depthBuffer: false, stencilBuffer: false, colorSpace: THREE.NoColorSpace,
+      });
+      t.texture.generateMipmaps = false;
+      return t;
+    };
+    const rtB = mkRT(), rtC = mkRT();
+
+    const VS = /* glsl */`
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    `;
+    const bright = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: rt.texture }, uThresh: { value: 0.92 } },
+      depthTest: false, depthWrite: false, vertexShader: VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        uniform sampler2D uTex; uniform float uThresh;
+        varying vec2 vUv;
+        void main() {
+          vec3 c = texture2D(uTex, vUv).rgb;
+          float l = max(max(c.r, c.g), c.b);
+          gl_FragColor = vec4(c * (max(l - uThresh, 0.0) / max(l, 1e-4)), 1.0);
+        }
+      `,
+    });
+    const blur = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: null }, uStep: { value: new THREE.Vector2() } },
+      depthTest: false, depthWrite: false, vertexShader: VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        uniform sampler2D uTex; uniform vec2 uStep;
+        varying vec2 vUv;
+        void main() {
+          vec3 s = texture2D(uTex, vUv).rgb * 0.227027;
+          s += texture2D(uTex, vUv + uStep * 1.0).rgb * 0.1945946;
+          s += texture2D(uTex, vUv - uStep * 1.0).rgb * 0.1945946;
+          s += texture2D(uTex, vUv + uStep * 2.0).rgb * 0.1216216;
+          s += texture2D(uTex, vUv - uStep * 2.0).rgb * 0.1216216;
+          s += texture2D(uTex, vUv + uStep * 3.0).rgb * 0.054054;
+          s += texture2D(uTex, vUv - uStep * 3.0).rgb * 0.054054;
+          s += texture2D(uTex, vUv + uStep * 4.0).rgb * 0.016216;
+          s += texture2D(uTex, vUv - uStep * 4.0).rgb * 0.016216;
+          gl_FragColor = vec4(s, 1.0);
+        }
+      `,
+    });
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uScene: { value: rt.texture }, uBloom: { value: rtB.texture },
+        uExposure: { value: 1 }, uBloomAmt: { value: 1.30 },
+      },
+      depthTest: false, depthWrite: false, vertexShader: VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        uniform sampler2D uScene; uniform sampler2D uBloom;
+        uniform float uExposure; uniform float uBloomAmt;
+        varying vec2 vUv;
+        vec3 RRTAndODTFit(vec3 v) {
+          vec3 a = v * (v + 0.0245786) - 0.000090537;
+          vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+          return a / b;
+        }
+        vec3 aces(vec3 c) {
+          const mat3 IN = mat3(0.59719, 0.07600, 0.02840,
+                               0.35458, 0.90834, 0.13383,
+                               0.04823, 0.01566, 0.83777);
+          const mat3 OUT = mat3(1.60475, -0.10208, -0.00327,
+                                -0.53108, 1.10813, -0.07276,
+                                -0.07367, -0.00605, 1.07602);
+          c *= uExposure / 0.6;
+          c = IN * c;
+          c = RRTAndODTFit(c);
+          c = OUT * c;
+          return clamp(c, 0.0, 1.0);
+        }
+        vec3 toSRGB(vec3 c) {
+          return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+        }
+        float bayer2(vec2 a) { a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
+        float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+        vec3 dither8(vec2 p) {
+          float d = bayer4(0.5 * p) * 0.25 + bayer2(p);
+          return vec3(d - 0.5) / 255.0;
+        }
+        void main() {
+          vec3 lin = max(texture2D(uScene, vUv).rgb, 0.0);
+          lin += uBloomAmt * texture2D(uBloom, vUv).rgb;
+          vec3 c = toSRGB(aces(lin));
+          c += dither8(gl_FragCoord.xy);
+          gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+        }
+      `,
+    });
+    const geo = new THREE.PlaneGeometry(2, 2);
+    const quad = new THREE.Mesh(geo, mat);
+    quad.frustumCulled = false;
+    const scene2 = new THREE.Scene();
+    scene2.add(quad);
+    const quadB = new THREE.Mesh(geo, bright); quadB.frustumCulled = false;
+    const quadBlur = new THREE.Mesh(geo, blur); quadBlur.frustumCulled = false;
+    const sceneB = new THREE.Scene(); sceneB.add(quadB);
+    const sceneBlur = new THREE.Scene(); sceneBlur.add(quadBlur);
+    const cam2 = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    let bw = 1, bh = 1;
+    return {
+      mode: 'half-float ' + SS + 'x supersample + emitter bloom + 8x8 ordered dither',
+      enabled: true, samples: rt.samples,
+      rt, mat, scene2, cam2,
+      setSize(w, h, ratio) {
+        const pw = Math.max(1, Math.round(w * ratio)), ph = Math.max(1, Math.round(h * ratio));
+        const ss = ratio >= 1.5 ? 1 : SS;
+        rt.setSize(Math.round(pw * ss), Math.round(ph * ss));
+        bw = Math.max(2, Math.round(pw * ss * BL));
+        bh = Math.max(2, Math.round(ph * ss * BL));
+        rtB.setSize(bw, bh);
+        rtC.setSize(bw, bh);
+      },
+      render(scene, camera) {
+        mat.uniforms.uExposure.value = renderer.toneMappingExposure;
+        renderer.setRenderTarget(rt);
+        renderer.clear();
+        renderer.render(scene, camera);
+
+        bright.uniforms.uTex.value = rt.texture;
+        renderer.setRenderTarget(rtB);
+        renderer.render(sceneB, cam2);
+
+        blur.uniforms.uTex.value = rtB.texture;
+        blur.uniforms.uStep.value.set(1 / bw, 0);
+        renderer.setRenderTarget(rtC);
+        renderer.render(sceneBlur, cam2);
+
+        blur.uniforms.uTex.value = rtC.texture;
+        blur.uniforms.uStep.value.set(0, 1 / bh);
+        renderer.setRenderTarget(rtB);
+        renderer.render(sceneBlur, cam2);
+
+        mat.uniforms.uBloom.value = rtB.texture;
+        renderer.setRenderTarget(null);
+        renderer.render(scene2, cam2);
+      },
+      dispose() {
+        rt.dispose(); rtB.dispose(); rtC.dispose();
+        mat.dispose(); bright.dispose(); blur.dispose(); geo.dispose();
+      },
+    };
+  })();
 
   /* Compile the scene's programs without freezing the page. On a software rasteriser
      (or a weak integrated GPU) shader compilation is the single biggest first-frame
@@ -694,7 +913,7 @@ export function createStage(canvasEl, opts = {}) {
   /* A build tag, not decoration: the exported GLB is cached by path, and a returning
      visitor would otherwise keep the previous body for as long as the header allows.
      Bump it whenever the .glb changes. */
-  const ASSET_URL = new URL('../assets/vesper-01.glb?v=7', import.meta.url).href;
+  const ASSET_URL = new URL('../assets/vesper-01.glb?v=9', import.meta.url).href;
   const placeholder = () => new THREE.BoxGeometry(1e-4, 1e-4, 1e-4);
 
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -707,10 +926,49 @@ export function createStage(canvasEl, opts = {}) {
   });
   /* the diffuser's own material: emission, and a near-black albedo so the environment
      cannot add diffuse on top of it and desaturate it through ACES */
+  /* Black albedo and no environment response: the blade's pixels are its emission and
+     nothing else. At 0x140c06 the studio key added ~0.06 linear of *neutral* light on top
+     of the emission, which is what greyed the amber out — measured (140,117,76) where the
+     emission alone is (255,150,35). A light pipe is not lit. */
   const coreMat = new THREE.MeshStandardMaterial({
-    color: 0x140c06, emissive: new THREE.Color(0xff7a1e), emissiveIntensity: 0.5,
-    roughness: 1.0, metalness: 0.0, side: THREE.DoubleSide,
+    color: 0x000000, emissive: new THREE.Color(0xff7a1e), emissiveIntensity: 0.5,
+    roughness: 1.0, metalness: 0.0, envMapIntensity: 0, side: THREE.DoubleSide,
   });
+
+  /* The pipe's face is a light pipe, not a painted strip: brightest down its centre,
+     falling to a third at the edges. The mesh's UV runs across the blade (u 0.2-0.8 is
+     -6..+6 mm of arc), so a 128 px gradient is exactly the cross-section. One small
+     texture buys the thing a flat emissive cannot have — a hot core with warm shoulders,
+     which is what separates "a light source" from "an inlay" at 1:1. */
+  const pipeGradient = (() => {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 4;
+    const g = c.getContext('2d');
+    const grd = g.createLinearGradient(0, 0, 128, 0);
+    /* The cross-section of a light pipe, not a bar: a narrow hot core, saturated
+       shoulders, and almost nothing at the two edges where the blade meets the throat.
+       A broad, flat peak clips the whole face to cream — measured (255,224,156) at 1:1,
+       which is exactly the "painted stripe" a critic called it — because ACES desaturates
+       as it compresses. Narrowing the peak leaves the shoulders in the part of the curve
+       where amber survives, so the section reads hot line -> amber -> dark -> metal. */
+    grd.addColorStop(0.00, '#000000');
+    grd.addColorStop(0.16, '#1c1c1c');
+    grd.addColorStop(0.28, '#8a8a8a');
+    grd.addColorStop(0.38, '#ffffff');
+    grd.addColorStop(0.62, '#ffffff');
+    grd.addColorStop(0.72, '#8a8a8a');
+    grd.addColorStop(0.84, '#1c1c1c');
+    grd.addColorStop(1.00, '#000000');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 4);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = 4;
+    return t;
+  })();
+  coreMat.emissiveMap = pipeGradient;
+  coreMat.needsUpdate = true;
 
   const body = new THREE.Mesh(placeholder(), bodyMat);
   const plinth = new THREE.Mesh(placeholder(), plinthMat);
@@ -773,6 +1031,22 @@ export function createStage(canvasEl, opts = {}) {
   const slotLightLow = new THREE.PointLight(0xffb464, 0.45, 0.50, 2);
   slotLightLow.position.set(0, 0.075, 0);
   group.add(slotLightLow);
+
+  /* ---------- the light that leaves the mouth ----------
+     Pass 6 had no source leaving the object at all: the two planes above only *draw* the
+     spill, so nothing was ever occluded, nothing carried an exposure, and the pattern
+     could not be seen to belong to the slot. These are two real three.js spot lights,
+     standing at the slot's mouth on the helix's own azimuth — one thrown down onto the
+     floor in front of the plinth, one thrown out across the wall behind and to the side —
+     each with a penumbra wide enough that the patch is a shaped pool and not a disc.
+     Their azimuth is recomputed from state.seamPhase every frame, so turning the object
+     turns the light and moves the patches: that is what makes the spill the seam's. */
+  const throwFloor = new THREE.SpotLight(0xffa053, 0.9, 1.6, 0.60, 0.95, 2);
+  throwFloor.castShadow = false;
+  scene.add(throwFloor, throwFloor.target);
+  const throwWall = new THREE.SpotLight(0xffa053, 2.0, 2.0, 0.52, 0.95, 2);
+  throwWall.castShadow = false;
+  scene.add(throwWall, throwWall.target);
 
   // oval plan
   const groupScaleX = 1.24;
@@ -919,6 +1193,8 @@ export function createStage(canvasEl, opts = {}) {
     );
   }
   const _fc = new THREE.Color();
+  const _coreTint = new THREE.Color();
+  const PIPE_TINT = new THREE.Color(1.0, 0.30, 0.055);  // amber acrylic transmission
 
   let t = 0;
   let instant = false;
@@ -980,12 +1256,24 @@ export function createStage(canvasEl, opts = {}) {
     const at = state.atmoTarget;
     const al = kReal(0.2);
     state.atmosphere = at;
-    coreMat.emissive.lerp(tmp.set(at.color), al);
+    /* the pipe is amber acrylic, so what leaves it is the atmosphere's colour through an
+       amber body: the same chromaticity, multiplied by its transmission. Without the tint
+       a 2400 K setting emits (250, 230, 180) — a cream stripe, which is what pass 6
+       photographed. */
+    /* The emitter's own rise is counted in frames, not seconds. Everything else here is a
+       material cross-fade measured in wall time, but the pipe is a light source: if it
+       ramps at the same rate, a visitor on a slow first frame sees a pale stripe for ten
+       seconds and the hero's one job — showing that light comes out of the gap — is
+       missed. 0.22/frame reaches 94 % in eleven frames on any machine. */
+    coreMat.emissive.lerp(_coreTint.set(at.color).multiply(PIPE_TINT),
+                          instant ? 1 : 0.22);
     seamLight.color.lerp(tmp.set(at.color), al);
     wallSpillMat.uniforms.uColor.value.lerp(tmp.set(at.spill), al);
     floorPoolMat.uniforms.uColor.value.lerp(tmp.set(at.spill), al);
     slotLight.color.lerp(tmp.set(at.color), al);
     slotLightLow.color.lerp(tmp.set(at.color), al);
+    throwFloor.color.lerp(tmp.set(at.spill), al);
+    throwWall.color.lerp(tmp.set(at.spill), al);
 
     const i = state.intensity;
     // the diffuser is a real tube in the trench now, so its own brightness is set here and
@@ -994,7 +1282,10 @@ export function createStage(canvasEl, opts = {}) {
        the lip's shadow. The blade now sits 0.2 mm under the lip land, so its own pixels
        are the brightest thing in the frame at a *quarter* of that: measured through ACES,
        1.6 returns (247,240,214) — a pale line, no amber — while 0.55-0.8 keeps the hue. */
-    coreMat.emissiveIntensity = 1.20 + i * 0.40;
+    // 3.2 at the shipped intensity: enough that the gradient's centre clips to a hot line
+    // while its shoulders stay amber, which is how a bright emitter photographs. The whole
+    // face stays the brightest plane in the frame by ~90 code values.
+    coreMat.emissiveIntensity = 3.10 + i * 0.60;
     // The slot's own bounce stays tiny. These lights sit ~5 mm from the metal, where three's
     // 1/r² multiplies the intensity by 4*10^4: pass 2's "0.34" was a floodlight painting the
     // body amber, which is how a white studio produced a bronze macro. The light the seam
@@ -1047,6 +1338,17 @@ export function createStage(canvasEl, opts = {}) {
     slotLight.position.set(Math.cos(sa) * rOut, 0.5 * (CHANNEL.yMin + CHANNEL.yMax), Math.sin(sa) * rOut);
     slotLightLow.position.set(Math.cos(sa - 1.1) * rOut * 0.86, 0.075, Math.sin(sa - 1.1) * rOut * 0.86);
 
+    /* the two throwing spots, at the mouth, aimed by the seam's own azimuth */
+    const sy = 0.5 * (CHANNEL.yMin + CHANNEL.yMax);
+    const sr = outerRadius(sy) * 1.02;
+    const mx = Math.cos(sa) * sr * groupScaleX, mz = Math.sin(sa) * sr;
+    throwFloor.position.set(mx, sy + 0.004, mz);
+    throwFloor.target.position.set(mx * 6.0, 0.0, mz * 6.0);
+    throwFloor.intensity = (0.55 + i * 1.05);
+    throwWall.position.set(mx, sy + 0.002, mz);
+    throwWall.target.position.set(0.45 * Math.cos(sa + 4.4), 0.26, -0.705);
+    throwWall.intensity = (1.35 + i * 1.15);
+
     // a shadow is the light that did not arrive, so more output means a firmer contact,
     // not a softer one
     contactCore.material.opacity = (0.74 + 0.18 * m) * (0.93 + 0.07 * i);
@@ -1054,7 +1356,8 @@ export function createStage(canvasEl, opts = {}) {
 
     if (!reduced) group.position.y = Math.sin(t * 0.5) * 0.0009;
 
-    renderer.render(scene, camera);
+    if (POST.enabled) POST.render(scene, camera);
+    else renderer.render(scene, camera);
     hasRendered = true;
     instant = false;
   }
@@ -1067,6 +1370,7 @@ export function createStage(canvasEl, opts = {}) {
        buffer at ~2.4 M pixels and keep the CSS size; above that the extra pixels buy
        nothing at normal viewing distance. */
     renderer.setSize(w, h, false);
+    if (POST.enabled) POST.setSize(w, h, renderer.getPixelRatio());
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
@@ -1227,10 +1531,11 @@ export function createStage(canvasEl, opts = {}) {
 
   return {
     scene, camera, renderer, group, body, bodyMat, plinthMat, coreMat, opal, state,
-    update, resize, compile, dispose: () => renderer.dispose(), isSettled, isCompiled: () => compiled,
+    update, resize, compile, dispose: () => { if (POST.dispose) POST.dispose(); renderer.dispose(); }, isSettled, isCompiled: () => compiled,
     setFinish, setAtmosphere, setOrbit, setIntensity, setMood, paceCamera, snapCamera, settle,
     objectRect, grooveProbe, spillProbe, emitterProbe, ringCount: () => (body.geometry && body.geometry.getAttribute('position') ? body.geometry.getAttribute('position').count : 0),
     wallSpill, floorPool, wallSpillMat, floorPoolMat,
+    output: () => ({ mode: POST.mode, enabled: !!POST.enabled, samples: POST.samples }),
     CHANNEL, outerRadius,
   };
 }

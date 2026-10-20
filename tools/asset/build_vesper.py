@@ -30,43 +30,53 @@ WALL = 0.0110
 
 # ---------------------------------------------------------------- the slot
 SLOT = dict(
-    phase=-1.15,          # radians at the slot's mid height, in the shipped front view
+    # 68.5 deg is where the hero camera stands (pos 0.17,0.31,0.94 -> target -0.20,0.105,0),
+    # so the slot's mid-height azimuth is set 10 deg inside it: a section of the helix faces
+    # the lens square on, which is the difference between a 24 mm aperture seen at 0.6x and
+    # one seen at 1.0x. The helix still turns away above and below, so it reads as a channel.
+    # Blender's azimuth runs the other way round once the exporter turns Z-up into Y-up
+    # (x, y, z) -> (x, z, -y), and the sign survives into the helix's *direction* as well as
+    # its start. -4.665 rad here is +58.5 deg at half height in the page's frame, with the
+    # channel climbing the other way; js/scene3d.js states the same helix, not a mirror of it.
+    phase=-4.6650,
     turns=1.16,
     z_min=0.038,
     z_max=0.286,
-    aperture=0.0140,      # 14 mm across the opening at the untouched surface
-    depth=0.0065,         # 6.5 mm floor below the untouched surface
+    aperture=0.0240,      # 24 mm across the opening at the untouched surface
+    depth=0.00740,        # 7.4 mm floor below the untouched surface
     runout=0.0032,        # the cutter lifts out over this much height at each end
 )
 
 # cross-section of the cut, (arc offset from the slot centre, depth below the surface).
-# The lip is a 45 deg chamfer plus a 0.45 mm land; the throat is a 5 deg draft wall
-# 4.7 mm tall; every junction carries an explicit 0.10-0.18 mm edge break so the whole
-# thing reads as one milled edge at 1:1 rather than a shading gradient.
+# A 2.0 mm, true 45 deg outer bevel; a 0.56 mm land; an 8 deg draft throat wall; a
+# filleted floor 16.3 mm across; every junction carries an explicit 0.10-0.16 mm edge
+# break. The widths are set by the hero framing, not by taste: at 0.50 mm/px the bevel
+# is 4 px, the dark throat reveal 5 px and the 13.2 mm pipe 26 px, so the recess reads as
+# three separate bands instead of one amber line.
 SLOT_PROFILE = [
-    (-0.00700, 0.00000),   # untouched surface
-    (-0.00687, 0.00013),   # edge break
-    (-0.00585, 0.00110),   # 45 deg lip chamfer
-    (-0.00572, 0.00121),   # edge break
-    (-0.00540, 0.00125),   # lip land, 0.45 mm wide, flat
-    (-0.00528, 0.00132),   # edge break into the throat
-    (-0.00490, 0.00410),   # throat wall, 5 deg draft
-    (-0.00475, 0.00585),   # floor fillet
-    (-0.00455, 0.00640),   # fillet out
-    (-0.00430, 0.00650),   # floor, 8.6 mm across, with 2.1 mm of metal either side of the strip
-    (0.00000, 0.00650),
-    (0.00430, 0.00650),
-    (0.00455, 0.00640),
-    (0.00475, 0.00585),
-    (0.00490, 0.00410),
-    (0.00528, 0.00132),
-    (0.00540, 0.00125),
-    (0.00572, 0.00121),
-    (0.00585, 0.00110),
-    (0.00687, 0.00013),
-    (0.00700, 0.00000),
+    (-0.01200, 0.00000),   # untouched surface
+    (-0.01186, 0.00016),   # edge break
+    (-0.00986, 0.00216),   # 2.0 mm outer lip bevel, 45 deg
+    (-0.00972, 0.00222),   # edge break
+    (-0.00930, 0.00226),   # lip land, 0.56 mm wide, flat
+    (-0.00918, 0.00234),   # edge break into the throat
+    (-0.00890, 0.00490),   # throat wall, 8 deg draft
+    (-0.00870, 0.00670),   # floor fillet
+    (-0.00842, 0.00732),   # fillet out
+    (-0.00815, 0.00740),   # floor, 16.3 mm across
+    (0.00000, 0.00740),
+    (0.00815, 0.00740),
+    (0.00842, 0.00732),
+    (0.00870, 0.00670),
+    (0.00890, 0.00490),
+    (0.00918, 0.00234),
+    (0.00930, 0.00226),
+    (0.00972, 0.00222),
+    (0.00986, 0.00216),
+    (0.01186, 0.00016),
+    (0.01200, 0.00000),
 ]
-DENSE_S = 0.00700
+DENSE_S = 0.01200
 
 # every object shares one baked 2K set, so every object gets its own rectangle of it.
 # (shell, plinth, dial live in three islands; the shell's cavity wall and base rim sit
@@ -96,16 +106,15 @@ def uv_box(name, u, v):
 
 N_UNIFORM = 176          # columns round the rest of the circumference
 ROW_STEP = 0.00130
-EMIT_HALF = 0.00270      # light-pipe half width: 5.4 mm of blade in an 8.6 mm floor
-# 1.45 mm, not 3.95. At the approved hero framing the camera sits 4.6 deg above the slot,
-# which is 70 deg off the slot's own normal where the helix crosses the body: a diffuser
-# 4 mm down is inside the near lip's shadow there and contributes nothing to the frame
-# (measured: hiding the pipe changed 1.5 % of the frame, all of it elsewhere). A 5 mm
-# blade whose crown stops 0.2 mm under the lip land is still recessed — the lip occludes
-# it past 78 deg, so it cannot be seen from behind or through the silhouette — and it is
-# visible everywhere the aperture is.
-EMIT_TOP = 0.00145       # crown depth below the untouched surface
-EMIT_BOT = 0.00640
+EMIT_HALF = 0.00590      # light-pipe half width: 11.8 mm of blade in an 18 mm throat
+# 1.25 mm below the lip plane, against a 7.4 mm floor: the blade is a light pipe at the
+# mouth, not a diffuser at the bottom of a trench. Its edges stop 3.4 mm inside the lip
+# land, and that 3.4 mm of throat is finished matte black in the atlas (compose.py), so the
+# hero frame reads bright bevel / black reveal / bright core: 24 px of source with a 6 px
+# dark band beside it at 0.50 mm/px, and the recess reads as a recess because the metal in
+# it is not metal.
+EMIT_TOP = 0.00125       # crown depth below the untouched surface
+EMIT_BOT = 0.00720
 
 
 def r_of(z):
@@ -216,11 +225,11 @@ def build_shell():
         cols.append(("s", p[0]))
     # 's' columns keep a constant arc width at every height; the columns that take
     # over from them are fixed angles, so the ring still closes exactly.
-    for s in (0.0102, 0.0165, 0.0260):
+    for s in (0.0148, 0.0208, 0.0330):
         cols.append(("a", s / 0.0718))
         cols.append(("a", -s / 0.0718))
     cols.sort(key=lambda c: (c[1] / 0.0718) if c[0] == "s" else c[1])
-    outer = cols[-1][1]                    # 0.0260 / 0.0718
+    outer = cols[-1][1]                    # 0.0330 / 0.0718
     span = TAU - 2 * outer
     for k in range(N_UNIFORM):
         cols.append(("a", outer + span * (k + 1) / (N_UNIFORM + 1)))
