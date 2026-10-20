@@ -9,8 +9,15 @@
 <link rel="preload" href="assets/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
 <!-- the page is locked while the boot panel is up; set before first paint so no scroll
-     can happen behind it, and removed the moment the object is live -->
-<script>document.documentElement.classList.add('is-boot')</script>
+     can happen behind it, and removed the moment the object is live. The same pass applies
+     the viewer's own motion choice, so a returning reader who turned motion down never sees
+     one frame of the full-motion version first. -->
+<script>
+  document.documentElement.classList.add('is-boot');
+  try {
+    if (localStorage.getItem('site-motion') === 'reduced') document.documentElement.classList.add('reduced');
+  } catch (e) {}
+</script>
 <link rel="stylesheet" href="css/site.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2313100e'/%3E%3Cpath d='M10 24 L22 8' stroke='%23ffb464' stroke-width='2.5'/%3E%3C/svg%3E">
 <script type="module" src="js/main.js"></script>
@@ -312,7 +319,7 @@
       <p class="foot__h">Contact</p>
       <p class="foot__note">A design study. There is no shop, no newsletter and no mailing list.</p>
       <p class="foot__note foot__note--dim">© <span id="year">2026</span> Vesper concept.</p>
-      <button class="foot__motion" type="button" id="footMotion" aria-pressed="false">Pause ambient motion</button>
+      <button class="foot__motion" type="button" id="footMotion" aria-pressed="false">Reduce motion</button>
     </div>
   </div>
 </footer>
@@ -331,7 +338,7 @@
   </div>
   <div class="dock__group dock__group--cta">
     <button class="btn btn--solid btn--sm" type="button" data-open-reserve>Reserve</button>
-    <button class="btn btn--ghost btn--sm dock__motion" type="button" id="motionToggle" aria-pressed="false" aria-label="Pause ambient motion">
+    <button class="btn btn--ghost btn--sm dock__motion" type="button" id="motionToggle" aria-pressed="false" aria-label="Reduce motion" title="Reduce motion">
       <svg class="ico ico--pause" viewBox="0 0 10 10" width="11" height="11" aria-hidden="true"><rect x="1" y="1" width="2.4" height="8"/><rect x="6.6" y="1" width="2.4" height="8"/></svg>
       <svg class="ico ico--play" viewBox="0 0 10 10" width="11" height="11" aria-hidden="true"><path d="M1.5 1 L9 5 L1.5 9 Z"/></svg>
     </button>

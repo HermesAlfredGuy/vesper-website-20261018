@@ -138,12 +138,12 @@ html.is-boot, html.is-boot body{overflow:hidden}
 }
 .boot__num{color:var(--bone);letter-spacing:.10em}
 .boot__pc{margin-left:1px;opacity:.58;font-size:10px}
-/* the line is the only thing that moves under reduced motion, and it does not: the fill
-   still tracks progress, the sweep is dropped, and the panel fades instead of sweeping */
-@media (prefers-reduced-motion: reduce){
-  .boot{transition:opacity .3s linear}
-  .boot.is-done .boot__sweep{animation:none;opacity:0}
-}
+/* Motion policy: the OS's prefers-reduced-motion is not a request the page reads — a work
+   laptop with "Animation effects" off is still owed the product. `html.reduced` is the
+   viewer's own toggle, added by js/main.js from localStorage. When it is on the fill still
+   tracks progress, the sweep is dropped, and the panel fades instead of sweeping. */
+html.reduced .boot{transition:opacity .3s linear}
+html.reduced .boot.is-done .boot__sweep{animation:none;opacity:0}
 
 /* ── stage ─────────────────────────────────────────────────────────── */
 .stage{position:fixed;inset:0;z-index:var(--z-stage);pointer-events:none}
@@ -611,15 +611,15 @@ body.is-end .dock{opacity:0;transform:translateY(14px);pointer-events:none;visib
 }
 @media (hover:none){.hint--mouse{display:none}.hint--touch{display:inline}}
 
-/* ── reduced motion: keep the page alive, remove travel ───────────── */
-@media (prefers-reduced-motion: reduce){
-  html:focus-within{scroll-behavior:auto}
-  /* no masked lines moving: instead the reveal is a plain short fade, so the
-     content still acknowledges arriving without anything travelling across it */
-  .ln>span,.ln>em{transform:none;transition:opacity .5s var(--ease)}
-  .rv{transform:none;transition:opacity .5s var(--ease)}
-  .readout__dot{animation:none;opacity:.85}
-  .swatch:hover::before{transform:none}
-  .atmos__row:hover{padding-left:4px}
-  .dock{transition:none}
-}
+/* ── reduced motion: keep the page alive, remove travel ───────────────
+   Written against `html.reduced` (the viewer's toggle), never against a media query:
+   the owner's machines report prefers-reduced-motion: reduce with "Animation effects"
+   off, and that must not turn the site into a still. */
+html.reduced{scroll-behavior:auto}
+html.reduced:focus-within{scroll-behavior:auto}
+html.reduced .ln>span,html.reduced .ln>em{transform:none;transition:opacity .5s var(--ease)}
+html.reduced .rv{transform:none;transition:opacity .5s var(--ease)}
+html.reduced .readout__dot{animation:none;opacity:.85}
+html.reduced .swatch:hover::before{transform:none}
+html.reduced .atmos__row:hover{padding-left:4px}
+html.reduced .dock{transition:none}

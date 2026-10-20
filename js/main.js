@@ -11,9 +11,15 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = (t) => t * t * (3 - 2 * t);
 
-const reduceQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-let reduced = reduceQuery.matches;
-let ambientOn = !reduced;
+/* Motion policy (owner, 2026-10-20): full motion by default, even when the OS reports
+   prefers-reduced-motion — work laptops ship with Windows "Animation effects" off and the
+   page must not read that as a request to go still. The only thing that calms the page is
+   the viewer's own toggle, remembered in localStorage as `site-motion`. */
+const MOTION_KEY = 'site-motion';
+let reduced = (() => {
+  try { return localStorage.getItem(MOTION_KEY) === 'reduced'; } catch (e) { return false; }
+})();
+let ambientOn = !reduced;          // the toggle drives both; kept in step in paintMotion()
 
 const body = document.body;
 const sections = $$('.sec');
@@ -56,7 +62,9 @@ function sampleStops(center) {
     const a = stops[i], b = stops[i + 1];
     if (center >= a.y && center <= b.y) {
       const raw = (center - a.y) / Math.max(1, b.y - a.y);
-      const t = reduced ? 0 : smooth(raw);
+      /* eased in both modes: this is the camera following the viewer's own scroll, not
+         autonomous motion, and a stepped camera is rougher than a smooth one */
+      const t = smooth(raw);
       return {
         pos: lerp3(a.pos, b.pos, t),
         target: lerp3(a.target, b.target, t),
@@ -330,20 +338,29 @@ turnRange.addEventListener('keydown', (e) => {
   window.addEventListener('blur', stop);
 }
 
-/* ---------- ambient motion pause ---------- */
+/* ---------- reduce motion: a visible control, not an OS guess ---------- */
 const motionBtn = $('#motionToggle');
 const footMotion = $('#footMotion');
 function paintMotion() {
+  ambientOn = !reduced;
+  document.documentElement.classList.toggle('reduced', reduced);
   if (motionBtn) {
-    motionBtn.setAttribute('aria-pressed', String(!ambientOn));
-    motionBtn.setAttribute('aria-label', ambientOn ? 'Pause ambient motion' : 'Resume ambient motion');
+    motionBtn.setAttribute('aria-pressed', String(reduced));
+    motionBtn.setAttribute('aria-label', reduced ? 'Turn motion back on' : 'Reduce motion');
+    motionBtn.title = reduced ? 'Turn motion back on' : 'Reduce motion';
   }
   if (footMotion) {
-    footMotion.setAttribute('aria-pressed', String(!ambientOn));
-    footMotion.textContent = ambientOn ? 'Pause ambient motion' : 'Resume ambient motion';
+    footMotion.setAttribute('aria-pressed', String(reduced));
+    footMotion.textContent = reduced ? 'Motion reduced' : 'Reduce motion';
   }
 }
-function toggleMotion() { ambientOn = !ambientOn; paintMotion(); dirty = true; }
+function toggleMotion() {
+  reduced = !reduced;
+  try { localStorage.setItem(MOTION_KEY, reduced ? 'reduced' : 'full'); } catch (e) {}
+  applySmoothScroll();
+  paintMotion();
+  dirty = true;
+}
 paintMotion();
 if (motionBtn) motionBtn.addEventListener('click', toggleMotion);
 if (footMotion) footMotion.addEventListener('click', toggleMotion);
@@ -420,9 +437,9 @@ syncChapter();
    downstream (`syncChapter`, the camera stops, the progress bar) keeps reading
    window.scrollY exactly as before. One clock, one position, no drift between them.
 
-   Off under reduced motion, off if the module fails to load, and touch is left native
-   (`syncTouch: false`) so a phone still scrolls the way a phone scrolls. The object's
-   drag is a pointer gesture and never touches the scroll. */
+   On by default; off when the viewer turns motion down with the toggle (and off if the
+   module fails to load). Touch is left native (`syncTouch: false`) so a phone still
+   scrolls the way a phone scrolls. The object's drag never touches the scroll. */
 let lenis = null;
 let lenisModPromise = null;
 
@@ -432,6 +449,22 @@ function loadLenis() {
   return lenisModPromise;
 }
 loadLenis();          // warm it during the boot panel, not on the first gesture
+
+/* The toggle has to be able to take the smooth scroll away and give it back, so the
+   two directions live here rather than in an init-only branch. */
+function applySmoothScroll() {
+  if (reduced) {
+    if (lenis) {
+      try { lenis.destroy(); } catch (e) {}
+      lenis = null;
+      window.__lenis = null;
+      document.documentElement.classList.remove('lenis', 'lenis-smooth', 'lenis-stopped');
+      body.style.removeProperty('height');
+    }
+    return null;
+  }
+  return startSmoothScroll(null);
+}
 
 function startSmoothScroll(mod) {
   if (lenis || reduced) return null;
