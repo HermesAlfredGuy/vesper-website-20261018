@@ -2,7 +2,7 @@
    One timeline owner: this file owns scroll -> scene state and the single rAF loop.
    CSS handles only micro-transitions, so nothing competes with the scene clock. */
 
-import { FINISHES, ATMOSPHERES } from './data.js';
+import { FINISHES, ATMOSPHERES, REST } from './data.js';
 
 let createStage = null;   // resolved lazily with js/scene3d.js, after the first view is painted
 
@@ -167,7 +167,7 @@ const state = {
   finish: 'foundry',
   atmosphere: 'hearth',
   intensity: 0.72,
-  orbit: 0,
+  orbit: REST,
   userIntensity: false,
 };
 
@@ -267,7 +267,10 @@ dockDim.addEventListener('input', () => setIntensity(Number(dockDim.value) / 100
    The channel is part of the body, so turning the object turns the seam. There is no
    separate seam phase to keep in sync, and nothing about the aperture is faked. */
 function setOrbit(t) {           // t in [-1, 1]
-  const o = t * 2.6;
+  /* 0 is the rest pose, which pass 8 settled at REST radians; full right is still 2.6 rad
+     of travel from it, so the control turns the object through the same arc it always did
+     and the seam under it turns with it because the seam is milled into the body. */
+  const o = REST + t * (2.6 - REST);
   state.orbit = o;
   if (stage) stage.setOrbit(o);
 }

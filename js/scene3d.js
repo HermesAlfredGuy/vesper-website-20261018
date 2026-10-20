@@ -11,7 +11,7 @@
 
 import * as THREE from '../vendor/three.module.js';
 import { GLTFLoader } from '../vendor/GLTFLoader.js';
-import { FINISHES, ATMOSPHERES } from './data.js';
+import { FINISHES, ATMOSPHERES, REST } from './data.js';
 
 export { FINISHES, ATMOSPHERES };
 
@@ -637,6 +637,11 @@ export function createStage(canvasEl, opts = {}) {
     const sceneB = new THREE.Scene(); sceneB.add(quadB);
     const sceneBlur = new THREE.Scene(); sceneBlur.add(quadBlur);
     const cam2 = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    /* The halo used to reach ~24 px from the core, which is wider than the channel is:
+       it lifted the throat bands on both sides and erased the second dip. A light pipe's
+       bleed belongs to the source; 0.34 of the old radius keeps the bleed and gives the
+       milled rebate its own shadow back. */
+    const BR_RADIUS = 0.34;
     let bw = 1, bh = 1;
     return {
       mode: 'half-float ' + SS + 'x supersample + emitter bloom + 8x8 ordered dither',
@@ -662,12 +667,12 @@ export function createStage(canvasEl, opts = {}) {
         renderer.render(sceneB, cam2);
 
         blur.uniforms.uTex.value = rtB.texture;
-        blur.uniforms.uStep.value.set(1 / bw, 0);
+        blur.uniforms.uStep.value.set(BR_RADIUS / bw, 0);
         renderer.setRenderTarget(rtC);
         renderer.render(sceneBlur, cam2);
 
         blur.uniforms.uTex.value = rtC.texture;
-        blur.uniforms.uStep.value.set(0, 1 / bh);
+        blur.uniforms.uStep.value.set(0, BR_RADIUS / bh);
         renderer.setRenderTarget(rtB);
         renderer.render(sceneBlur, cam2);
 
@@ -924,6 +929,86 @@ export function createStage(canvasEl, opts = {}) {
   const dialMat = new THREE.MeshStandardMaterial({
     color: 0xa4a9ae, metalness: 1.0, roughness: 0.38, envMapIntensity: 1.2,
   });
+
+  /* ---------- the machined surface ----------
+     The bake's cast micro-relief is a tangent-space normal map, and at the silhouette a
+     tangent-space map is projected at almost zero width: what was grain at the front
+     becomes vertical smears of filtered noise in the last 20 px of the flank, over a
+     luminance gradient flat enough that there is no shading change to hide them behind.
+
+     Two changes, both measured on the frame:
+       * the baked micro-normal fades out as the surface turns away from the lens
+         (N·V 0.05 -> 0.40), so the rolled edge reads as a clean rolled edge. The
+         geometry's smooth shading still carries the form, so only the aliasing is lost.
+       * a fine, direction-controlled brush is laid on top in object space: 2.4 mm lines
+         running up the column, phase-wandered along the height so they read as a linished
+         casting rather than a machined comb. It carries a normal tilt and a roughness
+         modulation, which is what makes brushed metal catch light as a streak along the
+         brush instead of as a smooth mirror. The pattern fades on its own screen-space
+         derivative (fwidth), so it cannot alias where it lands below a pixel — the half
+         of the problem a static map cannot solve. */
+  const BRUSH = { pitch: 236.0, tilt: 0.028, rough: 0.10 };
+  function machinedSurface(m) {
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uBrushTilt = { value: BRUSH.tilt };
+      sh.uniforms.uBrushRough = { value: BRUSH.rough };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vObj;
+          varying vec3 vBrushDir;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vObj = position;
+          /* the arc tangent of a lathe: horizontal, perpendicular to the radius */
+          vBrushDir = normalize(mat3(normalMatrix) * normalize(vec3(-position.z, 0.0, position.x) + vec3(1e-5)));`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vObj;
+          varying vec3 vBrushDir;
+          uniform float uBrushTilt;
+          uniform float uBrushRough;
+          float bhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float bnoise(vec2 p) {
+            vec2 i = floor(p), f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(bhash(i), bhash(i + vec2(1.0, 0.0)), f.x),
+                       mix(bhash(i + vec2(0.0, 1.0)), bhash(i + vec2(1.0, 1.0)), f.x), f.y);
+          }
+          /* the brush slope in [-1,1]; a is its own screen-space fade */
+          float brushSlope(vec3 p, out float a) {
+            float ang = atan(p.z, p.x) * 0.15915494;      // -0.5..0.5 round the column
+            vec2 q = vec2(ang * ${BRUSH.pitch.toFixed(1)}, p.y * 18.0);
+            float n = bnoise(q) * 0.64 + bnoise(q * 2.7 + 11.3) * 0.36;
+            /* fade on the derivative of the arc coordinate only: the lines may stay sharp
+               along the height while they vanish across it, which is where the folded
+               projection at the silhouette would otherwise alias */
+            a = clamp(1.0 - 1.5 * fwidth(q.x), 0.0, 1.0);
+            return (n - 0.5) * 2.0;
+          }`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          {
+            float bA;
+            float b = brushSlope(vObj, bA);
+            /* grooves and plateaus: alternate lines are a touch rougher, the part of a
+               brushed finish a normal map alone cannot fake */
+            roughnessFactor *= 1.0 + uBrushRough * b * bA;
+          }`)
+        .replace('#include <normal_fragment_maps>', `
+          vec3 nGeo = normal;
+          #include <normal_fragment_maps>
+          {
+            float ndv = clamp(dot(nGeo, normalize(vViewPosition)), 0.0, 1.0);
+            float graze = smoothstep(0.05, 0.40, ndv);
+            normal = normalize(nGeo + (normal - nGeo) * mix(0.15, 1.0, graze));
+            float bA;
+            float b = brushSlope(vObj, bA);
+            normal = normalize(normal + vBrushDir * (b * uBrushTilt * bA * graze));
+          }`);
+    };
+    m.needsUpdate = true;
+  }
+  machinedSurface(bodyMat);
+  machinedSurface(plinthMat);
+  machinedSurface(dialMat);
   /* the diffuser's own material: emission, and a near-black albedo so the environment
      cannot add diffuse on top of it and desaturate it through ACES */
   /* Black albedo and no environment response: the blade's pixels are its emission and
@@ -1058,10 +1143,10 @@ export function createStage(canvasEl, opts = {}) {
     finishTarget: FINISHES[2],
     atmosphere: ATMOSPHERES[1],
     atmoTarget: ATMOSPHERES[1],
-    orbit: 0,
-    targetOrbit: 0,
+    orbit: REST,
+    targetOrbit: REST,
     phase: CHANNEL.phase,
-    seamPhase: CHANNEL.phase,
+    seamPhase: CHANNEL.phase + REST,
     intensity: 0.72,
     targetIntensity: 0.72,
     mood: 0.85,

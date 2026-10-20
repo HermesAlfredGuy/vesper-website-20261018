@@ -45,3 +45,15 @@ export const ATMOSPHERES = [
   { id: 'meridian', name: 'Meridian', kelvin: '4 600 K', temp: 4600, color: 0xbdd6e8, swatch: '#bdd6e8',
     spill: 0xb0cfe2, lumen: '240 lm', blurb: 'Cold, clean, slightly unreal. For working late.' },
 ];
+
+/* The object's rest orientation, in radians — where the seam sits at load.
+
+   Pass 8 shot seven rest angles and cut square across the channel in each
+   (docs/pass8/shots/rot-*.png, tools/pass8_seam.py): at 0 deg the core above L 100 is
+   10.0 px wide with a throat 49 below the metal; at -15 deg it is 11.5 px and 46 below,
+   with the core at L 137 instead of 131 — a wider facing section for the same recess.
+   Past -25 the throat starts to fill with bloom and +10 merges the core into the
+   specular flank, so -15 is the widest fully-modulated section. It lives in the data module because both owners
+   need it: scene3d.js applies it to the object's rotation, and main.js's slider maps 0 to
+   it, so the control's rest pose and the first painted frame cannot disagree. */
+export const REST = -0.2618;

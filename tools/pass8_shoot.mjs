@@ -14,7 +14,8 @@ const args = process.argv.slice(2);
 const url = args[0];
 const out = args[1];
 const w = +(args[2] || 1440), h = +(args[3] || 900), dpr = +(args[4] || 1);
-const turn = args[5] !== undefined ? Number(args[5]) : 0;
+/* no turn argument = shoot the page's own rest pose, which is what ships */
+const turn = args[5] !== undefined ? Number(args[5]) : null;
 const clipArg = args.find((a) => a.startsWith('--clip='));
 
 const browser = await chromium.launch({
